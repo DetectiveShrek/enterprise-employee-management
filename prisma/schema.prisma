@@ -1,0 +1,347 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  HR_MANAGER
+  MANAGER
+  TEAM_LEAD
+  EMPLOYEE
+  FINANCE_EXECUTIVE
+  IT_ADMINISTRATOR
+  AUDITOR
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  LEAVE
+  HOLIDAY
+  WORK_FROM_HOME
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  MATERNITY
+  PATERNITY
+  WORK_FROM_HOME
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TaskStatus {
+  TO_DO
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  RETIRED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  firebaseUid  String    @unique
+  role         Role      @default(EMPLOYEE)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  employeeProfile Employee?
+  auditLogs       AuditLog[]
+  taskComments    TaskComment[]
+  taskAttachments TaskAttachment[]
+}
+
+model Organization {
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  departments Department[]
+}
+
+model Department {
+  id                 String       @id @default(uuid())
+  name               String
+  code               String       @unique
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  
+  managerId          String?      @unique
+  manager            Employee?    @relation("DepartmentManager", fields: [managerId], references: [id])
+  
+  parentDepartmentId String?
+  parentDepartment   Department?  @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  subDepartments     Department[] @relation("DepartmentHierarchy")
+  
+  employees          Employee[]   @relation("EmployeeDepartment")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+model Designation {
+  id        String     @id @default(uuid())
+  title     String
+  code      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  employees Employee[]
+}
+
+model Employee {
+  id             String       @id @default(uuid())
+  employeeId     String       @unique // e.g. EMP001
+  userId         String       @unique
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  firstName      String
+  lastName       String
+  email          String       @unique
+  mobile         String?
+  address        String?
+  gender         String?
+  bloodGroup     String?
+  dob            DateTime?
+  joiningDate    DateTime
+  
+  departmentId   String?
+  department     Department?  @relation("EmployeeDepartment", fields: [departmentId], references: [id])
+  
+  designationId  String?
+  designation    Designation? @relation(fields: [designationId], references: [id])
+  
+  managerId      String?
+  manager        Employee?    @relation("ReportTo", fields: [managerId], references: [id])
+  subordinates   Employee[]   @relation("ReportTo")
+  
+  employmentType String       @default("Full-time") // e.g. Full-time, Contract, Intern
+  salaryGrade    String?
+  status         String       @default("Active") // e.g. Active, Probation, OnLeave, Suspended, Exited
+  
+  managedDepartment Department? @relation("DepartmentManager")
+  attendanceLogs    Attendance[]
+  leaveRequests     LeaveRequest[]  @relation("EmployeeLeaves")
+  approvedLeaves    LeaveRequest[]  @relation("LeaveApprover")
+  leaveBalances     LeaveBalance[]
+  payrolls          Payroll[]
+  tasks             Task[]
+  assets            Asset[]
+  raisedTickets     HelpTicket[]    @relation("TicketRaiser")
+  assignedTickets   HelpTicket[]    @relation("TicketAgent")
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model LeaveBalance {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType  LeaveType
+  allocated  Int
+  used       Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([employeeId, leaveType])
+}
+
+model Attendance {
+  id           String           @id @default(uuid())
+  employeeId   String
+  employee     Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         DateTime
+  clockIn      DateTime
+  clockOut     DateTime?
+  workingHours Float?
+  overtime     Float?
+  gpsLatitude  Float?
+  gpsLongitude Float?
+  status       AttendanceStatus @default(PRESENT)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+model LeaveRequest {
+  id            String      @id @default(uuid())
+  employeeId    String
+  employee      Employee    @relation("EmployeeLeaves", fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType     LeaveType
+  startDate     DateTime
+  endDate       DateTime
+  reason        String
+  status        LeaveStatus @default(PENDING)
+  
+  approvedById  String?
+  approvedBy    Employee?   @relation("LeaveApprover", fields: [approvedById], references: [id])
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Payroll {
+  id              String   @id @default(uuid())
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month           Int
+  year            Int
+  basicSalary     Float
+  hra             Float
+  bonus           Float    @default(0)
+  overtimePay     Float    @default(0)
+  providentFund   Float
+  professionalTax Float
+  incomeTax       Float
+  otherDeductions Float    @default(0)
+  netSalary       Float
+  status          String   @default("Draft") // e.g. Draft, Approved, Paid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([employeeId, month, year])
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  code        String    @unique
+  description String?
+  startDate   DateTime
+  endDate     DateTime?
+  status      String    @default("Not Started") // e.g. Not Started, Active, Completed
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  tasks       Task[]
+}
+
+model Task {
+  id           String       @id @default(uuid())
+  projectId    String
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  status       TaskStatus   @default(TO_DO)
+  priority     TaskPriority @default(MEDIUM)
+  
+  assignedToId String?
+  assignedTo   Employee?    @relation(fields: [assignedToId], references: [id])
+  deadline     DateTime?
+  
+  comments     TaskComment[]
+  attachments  TaskAttachment[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   String
+  createdAt DateTime @default(now())
+}
+
+model TaskAttachment {
+  id           String   @id @default(uuid())
+  taskId       String
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileName     String
+  fileUrl      String
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+}
+
+model Asset {
+  id            String      @id @default(uuid())
+  name          String
+  serialNumber  String      @unique
+  type          String
+  status        AssetStatus @default(AVAILABLE)
+  allocatedToId String?
+  allocatedTo   Employee?   @relation(fields: [allocatedToId], references: [id])
+  allocatedDate DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model HelpTicket {
+  id             String         @id @default(uuid())
+  title          String
+  description    String
+  category       String
+  status         TicketStatus   @default(OPEN)
+  priority       TicketPriority @default(MEDIUM)
+  
+  raisedById     String
+  raisedBy       Employee       @relation("TicketRaiser", fields: [raisedById], references: [id], onDelete: Cascade)
+  
+  assignedToId   String?
+  assignedTo     Employee?      @relation("TicketAgent", fields: [assignedToId], references: [id])
+  
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}

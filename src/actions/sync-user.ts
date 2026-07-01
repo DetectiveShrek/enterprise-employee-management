@@ -1,0 +1,65 @@
+'use server';
+
+import { adminAuth } from '@/lib/firebase-admin';
+import prisma from '@/lib/prisma';
+import { Role } from '@prisma/client';
+
+export async function syncUserAction(idToken: string) {
+  try {
+    if (!idToken) {
+      return { success: false, error: 'Token is required' };
+    }
+
+    // Verify token with Firebase Admin
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const { uid, email } = decodedToken;
+
+    if (!email) {
+      return { success: false, error: 'Email is required from identity provider' };
+    }
+
+    // Upsert User in database
+    const user = await prisma.user.upsert({
+      where: { firebaseUid: uid },
+      update: {},
+      create: {
+        firebaseUid: uid,
+        email: email,
+        role: Role.EMPLOYEE, // Default role
+      },
+    });
+
+    // Check if employee profile exists, if not create a default draft profile
+    const employee = await prisma.employee.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!employee) {
+      // Generate a unique employee code
+      const count = await prisma.employee.count();
+      const employeeId = `EMP${String(count + 1).padStart(3, '0')}`;
+      
+      const emailParts = email.split('@');
+      const namePart = emailParts[0];
+      const firstName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      
+      await prisma.employee.create({
+        data: {
+          employeeId,
+          userId: user.id,
+          email,
+          firstName,
+          lastName: 'Employee',
+          joiningDate: new Date(),
+          employmentType: 'Full-time',
+          status: 'Active',
+        },
+      });
+    }
+
+    return { success: true, user };
+  } catch (error) {
+    console.error('Error in syncUserAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
