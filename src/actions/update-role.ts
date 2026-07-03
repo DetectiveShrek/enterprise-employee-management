@@ -61,3 +61,47 @@ export async function getUsersAction() {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown database error' };
   }
 }
+
+import { adminAuth } from '@/lib/firebase-admin';
+import { Auth } from 'firebase-admin/auth';
+
+export async function syncFirebaseUsersAction() {
+  try {
+    if (!('listUsers' in adminAuth) || typeof (adminAuth as Auth).listUsers !== 'function') {
+      return { success: false, error: 'Firebase Admin Auth is running in mock mode and cannot list users.' };
+    }
+
+    const listUsersResult = await (adminAuth as Auth).listUsers();
+    const syncedUsers = [];
+
+    for (const userRecord of listUsersResult.users) {
+      if (!userRecord.email) continue;
+
+      // Determine starting role based on email context
+      let role: Role = Role.EMPLOYEE;
+      if (userRecord.email.toLowerCase().includes('superadmin')) {
+        role = Role.SUPER_ADMIN;
+      } else if (userRecord.email.toLowerCase().includes('admin')) {
+        role = Role.ORG_ADMIN;
+      }
+
+      const upserted = await prisma.user.upsert({
+        where: { firebaseUid: userRecord.uid },
+        update: {
+          email: userRecord.email,
+        },
+        create: {
+          firebaseUid: userRecord.uid,
+          email: userRecord.email,
+          role: role,
+        },
+      });
+      syncedUsers.push(upserted);
+    }
+
+    return { success: true, count: syncedUsers.length };
+  } catch (error) {
+    console.error('Error in syncFirebaseUsersAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown sync error' };
+  }
+}

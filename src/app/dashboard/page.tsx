@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { Logo } from '@/components/logo';
 import { motion, AnimatePresence } from 'framer-motion';
-import { updateUserRoleAction, getUsersAction } from '@/actions/update-role';
+import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction } from '@/actions/update-role';
 import { Role } from '@prisma/client';
 import { 
   Users, Clock, CalendarRange, 
@@ -14,7 +14,7 @@ import {
   User, Settings, Plus, TrendingUp,
   CheckCircle2, Calendar, MessageSquare,
   Activity, Check, MoreHorizontal, Sparkles,
-  Bot, Send, Loader2
+  Bot, Send, Loader2, RefreshCw
 } from 'lucide-react';
 
 
@@ -100,6 +100,7 @@ export default function Dashboard() {
   ]);
   const [rbacStatus, setRbacStatus] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [isDbConnected, setIsDbConnected] = useState(false);
+  const [syncingFirebase, setSyncingFirebase] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'System Control') {
@@ -125,6 +126,32 @@ export default function Dashboard() {
       fetchUsers();
     }
   }, [activeTab]);
+
+  const handleSyncFirebaseUsers = async () => {
+    setSyncingFirebase(true);
+    setRbacStatus(null);
+    try {
+      const res = await syncFirebaseUsersAction();
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: `Successfully synced ${res.count} user(s) from Firebase Auth.` });
+        setRbacLogs(prev => [
+          `Firebase user sync triggered manually. Synced ${res.count} account(s).`,
+          ...prev
+        ]);
+        const usersRes = await getUsersAction();
+        if (usersRes.success && usersRes.users) {
+          setDbUsers(usersRes.users);
+        }
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to sync users.' });
+      }
+    } catch (e) {
+      console.error(e);
+      setRbacStatus({ type: 'error', text: 'An error occurred during synchronization.' });
+    } finally {
+      setSyncingFirebase(false);
+    }
+  };
 
   const handleRoleChange = async (userId: string, newRole: Role) => {
     setRbacStatus(null);
@@ -214,12 +241,22 @@ export default function Dashboard() {
                 <h3 className="font-bold text-slate-800 text-sm tracking-tight">Active Accounts Registry</h3>
                 <p className="text-[10px] text-slate-400 font-medium">Dynamically promote, demote, or audit tenant credentials</p>
               </div>
-              {loadingDbUsers && (
-                <div className="flex items-center gap-1.5 text-xs text-[#2D6A4F] font-semibold">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Fetching...</span>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                {loadingDbUsers && (
+                  <div className="flex items-center gap-1.5 text-xs text-[#2D6A4F] font-semibold">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Fetching...</span>
+                  </div>
+                )}
+                <button
+                  onClick={handleSyncFirebaseUsers}
+                  disabled={syncingFirebase || loadingDbUsers}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-[#2D6A4F]/10 hover:bg-[#2D6A4F]/20 text-[#2D6A4F] hover:text-[#1B4332] text-[10px] font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-[#2D6A4F]/15"
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncingFirebase ? 'animate-spin' : ''}`} />
+                  <span>{syncingFirebase ? 'Syncing...' : 'Sync Firebase Users'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
