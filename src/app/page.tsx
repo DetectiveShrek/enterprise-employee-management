@@ -245,6 +245,7 @@ export default function Home() {
 
               <button 
                 onClick={handleClockToggle}
+                suppressHydrationWarning
                 className={`w-full py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all shadow-md ${
                   isClockedIn 
                     ? 'bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-red-950/20' 

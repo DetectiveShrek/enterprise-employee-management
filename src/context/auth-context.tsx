@@ -74,7 +74,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const getMockRole = (email: string | null | undefined): string => {
     if (!email) return 'EMPLOYEE';
     const lower = email.toLowerCase();
-    if (lower.includes('admin')) return 'SUPER_ADMIN';
+    if (lower.includes('superadmin')) return 'SUPER_ADMIN';
+    if (lower.includes('admin')) return 'ORG_ADMIN';
     if (lower.includes('hr')) return 'HR_MANAGER';
     if (lower.includes('manager')) return 'MANAGER';
     if (lower.includes('lead')) return 'TEAM_LEAD';

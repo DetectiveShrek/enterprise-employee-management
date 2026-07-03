@@ -18,6 +18,22 @@ export async function syncUserAction(idToken: string) {
       return { success: false, error: 'Email is required from identity provider' };
     }
 
+    // Determine the role to assign on creation
+    let roleToAssign: Role = Role.EMPLOYEE;
+    const lowerEmail = email.toLowerCase();
+    
+    if (lowerEmail.includes('superadmin')) {
+      roleToAssign = Role.SUPER_ADMIN;
+    } else if (lowerEmail.includes('admin')) {
+      roleToAssign = Role.ORG_ADMIN;
+    } else {
+      // Fallback: If this is the very first user in the database, make them SUPER_ADMIN
+      const userCount = await prisma.user.count();
+      if (userCount === 0) {
+        roleToAssign = Role.SUPER_ADMIN;
+      }
+    }
+
     // Upsert User in database
     const user = await prisma.user.upsert({
       where: { firebaseUid: uid },
@@ -25,7 +41,7 @@ export async function syncUserAction(idToken: string) {
       create: {
         firebaseUid: uid,
         email: email,
-        role: Role.EMPLOYEE, // Default role
+        role: roleToAssign,
       },
     });
 
