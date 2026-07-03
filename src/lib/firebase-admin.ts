@@ -19,6 +19,19 @@ interface CustomAuth {
   verifyIdToken: (token: string) => Promise<{ uid: string; email: string }>;
 }
 
+const mockAuthClient: CustomAuth = {
+  verifyIdToken: async (token: string) => {
+    if (token && token.startsWith('mock-token:')) {
+      const parts = token.split(':');
+      return { 
+        uid: parts[2] || 'mock-uid', 
+        email: parts[1] || 'mock-user@example.com' 
+      };
+    }
+    return { uid: 'mock-uid', email: 'mock-user@example.com' };
+  }
+};
+
 let adminAuth: Auth | CustomAuth;
 
 if (!getApps().length) {
@@ -30,29 +43,17 @@ if (!getApps().length) {
       adminAuth = getAuth();
     } catch {
       console.warn('Failed to initialize Firebase Admin with credentials, falling back to mock auth client.');
-      adminAuth = {
-        verifyIdToken: async () => {
-          return { uid: 'mock-uid', email: 'mock-user@example.com' };
-        }
-      };
+      adminAuth = mockAuthClient;
     }
   } else {
     console.warn('Firebase Admin credentials missing or using placeholders. Initializing with mock auth client for development/build.');
-    adminAuth = {
-      verifyIdToken: async () => {
-        return { uid: 'mock-uid', email: 'mock-user@example.com' };
-      }
-    };
+    adminAuth = mockAuthClient;
   }
 } else {
   try {
     adminAuth = getAuth();
   } catch {
-    adminAuth = {
-      verifyIdToken: async () => {
-        return { uid: 'mock-uid', email: 'mock-user@example.com' };
-      }
-    };
+    adminAuth = mockAuthClient;
   }
 }
 

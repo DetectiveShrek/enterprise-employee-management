@@ -64,7 +64,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const pathname = usePathname();
   const router = useRouter();
 
+  // Detect mock mode if the API key is empty or a placeholder
+  const isMockMode = 
+    !process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY.includes('your-firebase-client-api-key') ||
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY === '';
+
+  // Helper to determine role from email in mock mode
+  const getMockRole = (email: string | null | undefined): string => {
+    if (!email) return 'EMPLOYEE';
+    const lower = email.toLowerCase();
+    if (lower.includes('admin')) return 'SUPER_ADMIN';
+    if (lower.includes('hr')) return 'HR_MANAGER';
+    if (lower.includes('manager')) return 'MANAGER';
+    if (lower.includes('lead')) return 'TEAM_LEAD';
+    if (lower.includes('finance')) return 'FINANCE_EXECUTIVE';
+    if (lower.includes('it')) return 'IT_ADMINISTRATOR';
+    if (lower.includes('audit')) return 'AUDITOR';
+    return 'EMPLOYEE';
+  };
+
   useEffect(() => {
+    if (isMockMode) {
+      const stored = localStorage.getItem('verdant_mock_user');
+      if (stored) {
+        try {
+          const mockUser = JSON.parse(stored);
+          const fbUser = {
+            uid: mockUser.uid,
+            email: mockUser.email,
+            displayName: mockUser.displayName || 'Mock User',
+            photoURL: null,
+            getIdToken: async () => `mock-token:${mockUser.email}:${mockUser.uid}`,
+          } as unknown as FirebaseUser;
+          setFirebaseUser(fbUser);
+          
+          fbUser.getIdToken().then((token) => {
+            syncUserAction(token || '').then((result) => {
+              const finalRole = (result.success && result.user) 
+                ? result.user.role 
+                : getMockRole(mockUser.email);
+              setUser({
+                uid: fbUser.uid,
+                email: fbUser.email,
+                displayName: fbUser.displayName,
+                photoURL: fbUser.photoURL,
+                role: finalRole,
+              });
+              setRole(finalRole);
+              setLoading(false);
+            }).catch(() => {
+              const finalRole = getMockRole(mockUser.email);
+              setUser({
+                uid: fbUser.uid,
+                email: fbUser.email,
+                displayName: fbUser.displayName,
+                photoURL: fbUser.photoURL,
+                role: finalRole,
+              });
+              setRole(finalRole);
+              setLoading(false);
+            });
+          });
+        } catch {
+          localStorage.removeItem('verdant_mock_user');
+          setFirebaseUser(null);
+          setLoading(false);
+        }
+      } else {
+        setFirebaseUser(null);
+        setLoading(false);
+      }
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
@@ -113,7 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isMockMode]);
 
   // Client-side Router Guard
   useEffect(() => {
@@ -132,6 +205,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithEmail = async (email: string, password: string, rememberMe: boolean) => {
     setLoading(true);
     try {
+      if (isMockMode) {
+        const mockUser = {
+          uid: 'mock-uid-' + Math.random().toString(36).substr(2, 9),
+          email: email,
+          displayName: email.split('@')[0],
+        };
+        localStorage.setItem('verdant_mock_user', JSON.stringify(mockUser));
+        
+        const fbUser = {
+          uid: mockUser.uid,
+          email: mockUser.email,
+          displayName: mockUser.displayName,
+          photoURL: null,
+          getIdToken: async () => `mock-token:${mockUser.email}:${mockUser.uid}`,
+        } as unknown as FirebaseUser;
+        setFirebaseUser(fbUser);
+        
+        try {
+          const result = await syncUserAction(`mock-token:${mockUser.email}:${mockUser.uid}`);
+          const finalRole = (result.success && result.user)
+            ? result.user.role
+            : getMockRole(mockUser.email);
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            role: finalRole,
+          });
+          setRole(finalRole);
+        } catch {
+          const finalRole = getMockRole(mockUser.email);
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            role: finalRole,
+          });
+          setRole(finalRole);
+        }
+        return;
+      }
+
       await setPersistence(
         auth, 
         rememberMe ? browserLocalPersistence : browserSessionPersistence
@@ -145,6 +262,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const registerWithEmail = async (email: string, password: string) => {
     setLoading(true);
     try {
+      if (isMockMode) {
+        const mockUser = {
+          uid: 'mock-uid-' + Math.random().toString(36).substr(2, 9),
+          email: email,
+          displayName: email.split('@')[0],
+        };
+        localStorage.setItem('verdant_mock_user', JSON.stringify(mockUser));
+        
+        const fbUser = {
+          uid: mockUser.uid,
+          email: mockUser.email,
+          displayName: mockUser.displayName,
+          photoURL: null,
+          getIdToken: async () => `mock-token:${mockUser.email}:${mockUser.uid}`,
+        } as unknown as FirebaseUser;
+        setFirebaseUser(fbUser);
+        
+        try {
+          const result = await syncUserAction(`mock-token:${mockUser.email}:${mockUser.uid}`);
+          const finalRole = (result.success && result.user)
+            ? result.user.role
+            : getMockRole(mockUser.email);
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            role: finalRole,
+          });
+          setRole(finalRole);
+        } catch {
+          const finalRole = getMockRole(mockUser.email);
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            role: finalRole,
+          });
+          setRole(finalRole);
+        }
+        return;
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       if (userCredential.user) {
         await sendEmailVerification(userCredential.user);
@@ -157,6 +318,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async () => {
     setLoading(true);
     try {
+      if (isMockMode) {
+        const mockUser = {
+          uid: 'mock-uid-' + Math.random().toString(36).substr(2, 9),
+          email: 'google-user@example.com',
+          displayName: 'Google User',
+        };
+        localStorage.setItem('verdant_mock_user', JSON.stringify(mockUser));
+        
+        const fbUser = {
+          uid: mockUser.uid,
+          email: mockUser.email,
+          displayName: mockUser.displayName,
+          photoURL: null,
+          getIdToken: async () => `mock-token:${mockUser.email}:${mockUser.uid}`,
+        } as unknown as FirebaseUser;
+        setFirebaseUser(fbUser);
+        
+        try {
+          const result = await syncUserAction(`mock-token:${mockUser.email}:${mockUser.uid}`);
+          const finalRole = (result.success && result.user)
+            ? result.user.role
+            : 'EMPLOYEE';
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            role: finalRole,
+          });
+          setRole(finalRole);
+        } catch {
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName,
+            photoURL: fbUser.photoURL,
+            role: 'EMPLOYEE',
+          });
+          setRole('EMPLOYEE');
+        }
+        return;
+      }
+
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } finally {
@@ -165,10 +369,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPassword = async (email: string) => {
+    if (isMockMode) return;
     await sendPasswordResetEmail(auth, email);
   };
 
   const sendVerificationEmail = async () => {
+    if (isMockMode) return;
     if (auth.currentUser) {
       await sendEmailVerification(auth.currentUser);
     }
@@ -177,6 +383,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     setLoading(true);
     try {
+      if (isMockMode) {
+        localStorage.removeItem('verdant_mock_user');
+        setUser(null);
+        setFirebaseUser(null);
+        setRole(null);
+        return;
+      }
+
       await fbSignOut(auth);
       setUser(null);
       setRole(null);
@@ -186,6 +400,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getIdToken = async () => {
+    if (isMockMode) {
+      const stored = localStorage.getItem('verdant_mock_user');
+      if (stored) {
+        const mockUser = JSON.parse(stored);
+        return `mock-token:${mockUser.email}:${mockUser.uid}`;
+      }
+      return null;
+    }
     if (!firebaseUser) return null;
     return firebaseUser.getIdToken();
   };
