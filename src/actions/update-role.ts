@@ -115,3 +115,59 @@ export async function syncFirebaseUsersAction() {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown sync error' };
   }
 }
+
+export async function createUserAction(email: string, role: Role) {
+  try {
+    if (!email) {
+      return { success: false, error: 'Email is required' };
+    }
+    
+    // Check if email already exists
+    const existing = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+    if (existing) {
+      return { success: false, error: 'A user with this email already exists.' };
+    }
+    
+    let firebaseUid = `mock-uid-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    let firebaseCreated = false;
+
+    // Create in Firebase Auth if Admin SDK is configured
+    if ('createUser' in adminAuth && typeof (adminAuth as Auth).createUser === 'function') {
+      try {
+        const userRecord = await (adminAuth as Auth).createUser({
+          email: email.toLowerCase(),
+          emailVerified: true,
+          password: 'Password123!', // Standard initial temporary password
+        });
+        firebaseUid = userRecord.uid;
+        firebaseCreated = true;
+      } catch (fbError) {
+        console.error('Error creating user in Firebase Auth:', fbError);
+        return { success: false, error: fbError instanceof Error ? fbError.message : 'Failed to register account in Firebase.' };
+      }
+    }
+
+    // Create new user in database
+    const newUser = await prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        role: role,
+        firebaseUid: firebaseUid
+      }
+    });
+    
+    return { 
+      success: true, 
+      user: newUser, 
+      firebaseCreated,
+      message: firebaseCreated 
+        ? `Successfully registered user in Firebase and database. Temporary password: "Password123!"`
+        : `Database user profile created in Mock development mode.`
+    };
+  } catch (error) {
+    console.error('Error in createUserAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown database error' };
+  }
+}

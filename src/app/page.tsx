@@ -147,6 +147,7 @@ export default function Home() {
                 </div>
                 <button 
                   onClick={signOut}
+                  suppressHydrationWarning
                   className="flex items-center justify-center p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-red-950/20 hover:border-red-800/40 text-slate-400 hover:text-red-400 transition-all"
                 >
                   <LogOut className="w-4 h-4" />
@@ -434,7 +435,7 @@ export default function Home() {
               </div>
 
               <div className="flex gap-2 mt-4">
-                <button className="flex-1 py-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 hover:text-slate-200 transition-all">
+                <button suppressHydrationWarning className="flex-1 py-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 hover:text-slate-200 transition-all">
                   Generate Payslip PDF
                 </button>
               </div>
@@ -479,7 +480,7 @@ export default function Home() {
               </div>
 
               <div className="flex gap-2 mt-4">
-                <button className="flex-1 py-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 hover:text-slate-200 transition-all">
+                <button suppressHydrationWarning className="flex-1 py-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 hover:text-slate-200 transition-all">
                   Open Support Ticket
                 </button>
               </div>
@@ -555,6 +556,7 @@ export default function Home() {
                   onClick={() => {
                     setChatInput(txt);
                   }}
+                  suppressHydrationWarning
                   className="text-[10px] text-slate-400 hover:text-blue-300 bg-slate-950 border border-slate-850 hover:border-blue-500/40 px-2 py-1 rounded-md transition-all text-left truncate max-w-full"
                 >
                   {txt}
@@ -575,6 +577,7 @@ export default function Home() {
             />
             <button 
               type="submit"
+              suppressHydrationWarning
               className="p-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-all shadow-md shadow-blue-950/20"
             >
               <Send className="w-4 h-4" />
