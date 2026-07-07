@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { Logo } from '@/components/logo';
 import { motion, AnimatePresence } from 'framer-motion';
-import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction } from '@/actions/update-role';
+import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction, deleteUserAction } from '@/actions/update-role';
 import { Role, LeaveType, LeaveStatus, AttendanceStatus, AssetStatus, TicketStatus, TicketPriority } from '@prisma/client';
 import { 
   Users, Clock, CalendarRange, 
@@ -369,6 +369,29 @@ export default function Dashboard() {
       }
     } catch (err) {
       setRbacStatus({ type: 'error', text: err instanceof Error ? err.message : 'An error occurred.' });
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, email: string) => {
+    if (!confirm(`Are you sure you want to delete user ${email}? This will also delete their Employee Profile and related records.`)) {
+      return;
+    }
+    setRbacStatus(null);
+    try {
+      const res = await deleteUserAction(userId);
+      if (res.success) {
+        setDbUsers(prev => prev.filter(u => u.id !== userId));
+        setRbacStatus({ type: 'success', text: res.message || `Successfully deleted user ${email}.` });
+        setRbacLogs(prev => [
+          `[${new Date().toLocaleTimeString()}] Deleted user ${email} (ID: ${userId}).`,
+          ...prev
+        ]);
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to delete user.' });
+      }
+    } catch (err) {
+      setRbacStatus({ type: 'error', text: err instanceof Error ? err.message : 'An error occurred during deletion.' });
     }
   };
 
@@ -2049,17 +2072,28 @@ export default function Dashboard() {
                           </span>
                         </td>
                         <td className="py-3.5 px-5 text-right">
-                          <select
-                            value={u.role}
-                            onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
-                            className="bg-slate-50 border border-slate-200 text-[11px] rounded-lg py-1 px-2 text-slate-655 focus:outline-none focus:border-brand-green/20"
-                          >
-                            {Object.values(Role).map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex items-center justify-end gap-2">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
+                              className="bg-slate-50 border border-slate-200 text-[11px] rounded-lg py-1 px-2 text-slate-655 focus:outline-none focus:border-brand-green/20"
+                            >
+                              {Object.values(Role).map((r) => (
+                                <option key={r} value={r}>
+                                  {r}
+                                </option>
+                              ))}
+                            </select>
+                            {u.email !== user?.email && (
+                              <button
+                                onClick={() => handleDeleteUser(u.id, u.email)}
+                                className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15"
+                                title="Delete User"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))

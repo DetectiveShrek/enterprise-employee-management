@@ -192,3 +192,86 @@ export async function createUserAction(email: string, role: Role, password?: str
     return { success: false, error: error instanceof Error ? error.message : 'Unknown database error' };
   }
 }
+
+export async function deleteUserAction(userId: string) {
+  try {
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    // 1. Find user
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { employeeProfile: true }
+    });
+
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    // 2. Delete related Employee profile and its dependencies
+    if (user.employeeProfile) {
+      const employeeId = user.employeeProfile.id;
+      
+      // Delete leave balances
+      await prisma.leaveBalance.deleteMany({ where: { employeeId } });
+      
+      // Delete attendance logs
+      await prisma.attendance.deleteMany({ where: { employeeId } });
+      
+      // Delete leave requests
+      await prisma.leaveRequest.deleteMany({ where: { employeeId } });
+      
+      // Delete payrolls
+      await prisma.payroll.deleteMany({ where: { employeeId } });
+      
+      // Deassociate assets
+      await prisma.asset.updateMany({
+        where: { allocatedToId: employeeId },
+        data: { allocatedToId: null, status: 'AVAILABLE', allocatedDate: null }
+      });
+      
+      // Delete raised help tickets
+      await prisma.helpTicket.deleteMany({ where: { raisedById: employeeId } });
+      
+      // Deassociate tickets assigned to this employee
+      await prisma.helpTicket.updateMany({
+        where: { assignedToId: employeeId },
+        data: { assignedToId: null }
+      });
+
+      // Delete tasks assigned to this employee
+      await prisma.task.updateMany({
+        where: { assignedToId: employeeId },
+        data: { assignedToId: null }
+      });
+      
+      // Delete employee profile
+      await prisma.employee.delete({ where: { id: employeeId } });
+    }
+
+    // 3. Delete user audit logs, comments, attachments
+    await prisma.auditLog.deleteMany({ where: { userId } });
+    await prisma.taskComment.deleteMany({ where: { userId } });
+    await prisma.taskAttachment.deleteMany({ where: { uploadedById: userId } });
+
+    // 4. Delete Firebase user if possible
+    try {
+      if ('deleteUser' in adminAuth && typeof (adminAuth as Auth).deleteUser === 'function') {
+        await (adminAuth as Auth).deleteUser(user.firebaseUid);
+      }
+    } catch (firebaseError) {
+      console.warn('Could not delete user from Firebase (mock mode?):', firebaseError);
+    }
+
+    // 5. Delete User record
+    await prisma.user.delete({
+      where: { id: userId }
+    });
+
+    return { success: true, message: `User ${user.email} deleted successfully.` };
+  } catch (error) {
+    console.error('Error in deleteUserAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to delete user' };
+  }
+}
