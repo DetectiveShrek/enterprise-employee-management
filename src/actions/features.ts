@@ -526,7 +526,7 @@ export async function getLeaveRequestsListAction(email?: string, role?: Role) {
   try {
     let requests: any[] = [];
     
-    if (role === Role.SUPER_ADMIN) {
+    if (role === Role.SUPER_ADMIN || role === Role.ORG_ADMIN || role === Role.HR_MANAGER) {
       requests = await prisma.leaveRequest.findMany({
         include: {
           employee: true
@@ -836,7 +836,9 @@ export async function getNotificationsAction(email: string, role: Role) {
       where: { email }
     });
 
-    if (!employee && role !== Role.SUPER_ADMIN) {
+    const isAdminRole = role === Role.SUPER_ADMIN || role === Role.ORG_ADMIN;
+
+    if (!employee && !isAdminRole) {
       return { success: true, notifications: [] };
     }
 
@@ -844,7 +846,7 @@ export async function getNotificationsAction(email: string, role: Role) {
 
     // 1. Leave Requests
     let leaves;
-    if (role === Role.SUPER_ADMIN) {
+    if (isAdminRole) {
       leaves = await prisma.leaveRequest.findMany({
         include: { employee: true },
         orderBy: { createdAt: 'desc' },
@@ -862,7 +864,7 @@ export async function getNotificationsAction(email: string, role: Role) {
     leaves.forEach(req => {
       const time = req.createdAt;
       const id = `leave-${req.id}`;
-      if (role === Role.SUPER_ADMIN) {
+      if (isAdminRole) {
         const text = `${req.employee.firstName} ${req.employee.lastName} applied for ${req.leaveType} leave. Status: ${req.status}`;
         notifications.push({
           id,
@@ -885,7 +887,7 @@ export async function getNotificationsAction(email: string, role: Role) {
 
     // 2. Assets
     let assets;
-    if (role === Role.SUPER_ADMIN) {
+    if (isAdminRole) {
       assets = await prisma.asset.findMany({
         where: { NOT: { allocatedToId: null } },
         include: { allocatedTo: true },
@@ -904,7 +906,7 @@ export async function getNotificationsAction(email: string, role: Role) {
     assets.forEach(asset => {
       const time = asset.allocatedDate || asset.updatedAt || asset.createdAt;
       const id = `asset-${asset.id}`;
-      if (role === Role.SUPER_ADMIN) {
+      if (isAdminRole) {
         const text = `Asset ${asset.name} (SN: ${asset.serialNumber}) is assigned to ${asset.allocatedTo?.firstName} ${asset.allocatedTo?.lastName}.`;
         notifications.push({
           id,
@@ -927,7 +929,7 @@ export async function getNotificationsAction(email: string, role: Role) {
 
     // 3. Payrolls
     let payrolls;
-    if (role === Role.SUPER_ADMIN) {
+    if (isAdminRole) {
       payrolls = await prisma.payroll.findMany({
         include: { employee: true },
         orderBy: { updatedAt: 'desc' },
@@ -948,7 +950,7 @@ export async function getNotificationsAction(email: string, role: Role) {
       const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
       const monthStr = monthNames[payroll.month] || `Month ${payroll.month}`;
       
-      if (role === Role.SUPER_ADMIN) {
+      if (isAdminRole) {
         const text = `Payroll status for ${payroll.employee.firstName} ${payroll.employee.lastName} updated to ${payroll.status} for ${monthStr} ${payroll.year}.`;
         notifications.push({
           id,
@@ -971,7 +973,7 @@ export async function getNotificationsAction(email: string, role: Role) {
 
     // 4. Help Tickets
     let tickets;
-    if (role === Role.SUPER_ADMIN) {
+    if (isAdminRole) {
       tickets = await prisma.helpTicket.findMany({
         include: { raisedBy: true },
         orderBy: { createdAt: 'desc' },
@@ -989,7 +991,7 @@ export async function getNotificationsAction(email: string, role: Role) {
     tickets.forEach(ticket => {
       const time = ticket.updatedAt || ticket.createdAt;
       const id = `ticket-${ticket.id}`;
-      if (role === Role.SUPER_ADMIN) {
+      if (isAdminRole) {
         const text = `Ticket #${ticket.id.slice(-4)}: "${ticket.title}" raised by ${ticket.raisedBy?.firstName} ${ticket.raisedBy?.lastName}. Status: ${ticket.status}`;
         notifications.push({
           id,
@@ -1019,5 +1021,76 @@ export async function getNotificationsAction(email: string, role: Role) {
     return { success: true, notifications: finalNotifications };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to load notifications" };
+  }
+}
+
+// -------------------------------------------------------------
+// DYNAMIC ORG SETUP ACTIONS FOR ADMIN
+// -------------------------------------------------------------
+export async function createDepartmentAction(name: string, code: string) {
+  try {
+    if (!name || !code) {
+      return { success: false, error: "Name and Code are required." };
+    }
+
+    // Get or create organization
+    let org = await prisma.organization.findFirst();
+    if (!org) {
+      org = await prisma.organization.create({
+        data: {
+          name: 'Verdant Enterprise',
+          code: 'VE'
+        }
+      });
+    }
+
+    const uppercaseCode = code.toUpperCase();
+    const existing = await prisma.department.findUnique({
+      where: { code: uppercaseCode }
+    });
+
+    if (existing) {
+      return { success: false, error: `Department with code ${uppercaseCode} already exists.` };
+    }
+
+    const dept = await prisma.department.create({
+      data: {
+        name,
+        code: uppercaseCode,
+        organizationId: org.id
+      }
+    });
+
+    return { success: true, department: dept };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to create department" };
+  }
+}
+
+export async function createDesignationAction(title: string, code: string) {
+  try {
+    if (!title || !code) {
+      return { success: false, error: "Title and Code are required." };
+    }
+
+    const uppercaseCode = code.toUpperCase();
+    const existing = await prisma.designation.findUnique({
+      where: { code: uppercaseCode }
+    });
+
+    if (existing) {
+      return { success: false, error: `Designation with code ${uppercaseCode} already exists.` };
+    }
+
+    const designation = await prisma.designation.create({
+      data: {
+        title,
+        code: uppercaseCode
+      }
+    });
+
+    return { success: true, designation };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to create designation" };
   }
 }

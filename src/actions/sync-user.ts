@@ -41,12 +41,7 @@ export async function syncUserAction(idToken: string) {
 
     let user;
     if (existingUser) {
-      user = await prisma.user.update({
-        where: { firebaseUid: uid },
-        data: {
-          role: roleToAssign,
-        }
-      });
+      user = existingUser;
     } else {
       user = await prisma.user.create({
         data: {

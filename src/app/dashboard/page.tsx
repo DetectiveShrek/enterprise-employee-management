@@ -38,7 +38,9 @@ import {
   updateTicketStatusAction,
   getDeptsAndDesigsAction,
   getEmployeeDepartmentAction,
-  getNotificationsAction
+  getNotificationsAction,
+  createDepartmentAction,
+  createDesignationAction
 } from '@/actions/features';
 
 export default function Dashboard() {
@@ -122,7 +124,7 @@ export default function Dashboard() {
     { name: 'Help Desk', icon: Ticket },
     { name: 'Settings', icon: Settings }
   ];
-  if (selectedRole === 'SUPER_ADMIN') {
+  if (selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') {
     menuItems.push({ name: 'System Control', icon: Shield });
   }
 
@@ -177,6 +179,11 @@ export default function Dashboard() {
   ]);
   const [rbacStatus, setRbacStatus] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [userDept, setUserDept] = useState<{ name: string | null; code: string | null } | null>(null);
+  const [controlSubTab, setControlSubTab] = useState<'Overview' | 'RBAC' | 'Org Setup'>('Overview');
+  const [newDeptForm, setNewDeptForm] = useState({ name: '', code: '' });
+  const [newDesigForm, setNewDesigForm] = useState({ title: '', code: '' });
+  const [isCreatingDept, setIsCreatingDept] = useState(false);
+  const [isCreatingDesig, setIsCreatingDesig] = useState(false);
 
   useEffect(() => {
     async function fetchUserDept() {
@@ -190,7 +197,7 @@ export default function Dashboard() {
     fetchUserDept();
   }, [user?.email]);
 
-  const isAccountsStaff = selectedRole === 'SUPER_ADMIN' || (
+  const isAccountsStaff = selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN' || (
     userDept && (
       userDept.name?.toLowerCase().includes('accounts') || 
       userDept.name?.toLowerCase().includes('finance') || 
@@ -289,6 +296,16 @@ export default function Dashboard() {
           setRbacStatus({ type: 'error', text: res.error || 'Failed to retrieve database users.' });
         }
         setLoadingDbUsers(false);
+        // Load additional details for Org Setup & Analytics
+        const deptRes = await getDeptsAndDesigsAction();
+        if (deptRes.success) {
+          setDepartments(deptRes.departments || []);
+          setDesignations(deptRes.designations || []);
+        }
+        const empRes = await getEmployeesListAction();
+        if (empRes.success && empRes.employees) {
+          setRealEmployees(empRes.employees);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -322,6 +339,58 @@ export default function Dashboard() {
       setRbacStatus({ type: 'error', text: 'Error seeding database.' });
     } finally {
       setSeeding(false);
+    }
+  };
+
+  // Create Department Handler
+  const handleCreateDept = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDeptForm.name || !newDeptForm.code) {
+      setRbacStatus({ type: 'error', text: 'Department Name and Code are required.' });
+      return;
+    }
+    setIsCreatingDept(true);
+    setRbacStatus(null);
+    try {
+      const res = await createDepartmentAction(newDeptForm.name, newDeptForm.code);
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: `Department "${newDeptForm.name}" created successfully!` });
+        setNewDeptForm({ name: '', code: '' });
+        setRbacLogs(prev => [`[${new Date().toLocaleTimeString()}] Created department: ${newDeptForm.name} (${newDeptForm.code.toUpperCase()})`, ...prev]);
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to create department.' });
+      }
+    } catch (err: any) {
+      setRbacStatus({ type: 'error', text: err.message || 'Error occurred.' });
+    } finally {
+      setIsCreatingDept(false);
+    }
+  };
+
+  // Create Designation Handler
+  const handleCreateDesig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDesigForm.title || !newDesigForm.code) {
+      setRbacStatus({ type: 'error', text: 'Designation Title and Code are required.' });
+      return;
+    }
+    setIsCreatingDesig(true);
+    setRbacStatus(null);
+    try {
+      const res = await createDesignationAction(newDesigForm.title, newDesigForm.code);
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: `Designation "${newDesigForm.title}" created successfully!` });
+        setNewDesigForm({ title: '', code: '' });
+        setRbacLogs(prev => [`[${new Date().toLocaleTimeString()}] Created designation: ${newDesigForm.title} (${newDesigForm.code.toUpperCase()})`, ...prev]);
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to create designation.' });
+      }
+    } catch (err: any) {
+      setRbacStatus({ type: 'error', text: err.message || 'Error occurred.' });
+    } finally {
+      setIsCreatingDesig(false);
     }
   };
 
@@ -682,7 +751,7 @@ export default function Dashboard() {
             </h2>
             <p className="text-xs text-slate-500">Here is what is happening across your enterprise workforce today.</p>
           </div>
-          {selectedRole === 'SUPER_ADMIN' && liveStats.totalEmployees === 0 && (
+          {(selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') && liveStats.totalEmployees === 0 && (
             <button 
               onClick={handleSeedData}
               disabled={seeding}
@@ -1967,6 +2036,166 @@ export default function Dashboard() {
     );
   };
 
+  const renderOrgSetup = () => {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Departments Panel */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">Departments Registry</h3>
+                <p className="text-[10px] text-slate-400">View and register business units</p>
+              </div>
+              <span className="px-2 py-0.5 bg-emerald-50 text-[#2D6A4F] text-[10px] font-black uppercase rounded-lg border border-emerald-100">
+                {departments.length} Depts
+              </span>
+            </div>
+            
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 mb-4">
+              {departments.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-8">No departments defined.</p>
+              ) : (
+                departments.map((dept) => (
+                  <div key={dept.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs hover:bg-slate-100/30 transition-all">
+                    <div>
+                      <span className="font-bold text-slate-800 block">{dept.name}</span>
+                      <span className="font-mono text-[9px] text-slate-400">ID: {dept.id.slice(0, 8)}...</span>
+                    </div>
+                    <span className="px-2 py-1 bg-slate-250 text-slate-700 text-[10px] font-bold rounded-lg uppercase">
+                      {dept.code}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <form onSubmit={handleCreateDept} className="pt-4 border-t border-slate-100 space-y-3">
+            <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Add New Department</h4>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Department Name (e.g. Sales)" 
+                  value={newDeptForm.name}
+                  onChange={(e) => setNewDeptForm({ ...newDeptForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-3 focus:outline-none focus:bg-white text-xs text-slate-800 placeholder-slate-400"
+                />
+              </div>
+              <div>
+                <input 
+                  type="text" 
+                  required
+                  maxLength={5}
+                  placeholder="Code (e.g. SLS)" 
+                  value={newDeptForm.code}
+                  onChange={(e) => setNewDeptForm({ ...newDeptForm, code: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-3 focus:outline-none focus:bg-white text-xs text-slate-800 placeholder-slate-400 uppercase"
+                />
+              </div>
+            </div>
+            <button 
+              type="submit" 
+              disabled={isCreatingDept}
+              className="w-full py-2 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              {isCreatingDept ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Registering...</span>
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Register Department</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Designations Panel */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">Designations Registry</h3>
+                <p className="text-[10px] text-slate-400">View and register job levels</p>
+              </div>
+              <span className="px-2 py-0.5 bg-emerald-50 text-[#2D6A4F] text-[10px] font-black uppercase rounded-lg border border-emerald-100">
+                {designations.length} Roles
+              </span>
+            </div>
+            
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 mb-4">
+              {designations.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-8">No designations defined.</p>
+              ) : (
+                designations.map((desig) => (
+                  <div key={desig.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs hover:bg-slate-100/30 transition-all">
+                    <div>
+                      <span className="font-bold text-slate-800 block">{desig.title}</span>
+                      <span className="font-mono text-[9px] text-slate-400">ID: {desig.id.slice(0, 8)}...</span>
+                    </div>
+                    <span className="px-2 py-1 bg-slate-250 text-slate-700 text-[10px] font-bold rounded-lg uppercase">
+                      {desig.code}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <form onSubmit={handleCreateDesig} className="pt-4 border-t border-slate-100 space-y-3">
+            <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Add New Designation</h4>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Designation Title (e.g. Director)" 
+                  value={newDesigForm.title}
+                  onChange={(e) => setNewDesigForm({ ...newDesigForm, title: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-3 focus:outline-none focus:bg-white text-xs text-slate-800 placeholder-slate-400"
+                />
+              </div>
+              <div>
+                <input 
+                  type="text" 
+                  required
+                  maxLength={5}
+                  placeholder="Code (e.g. DIR)" 
+                  value={newDesigForm.code}
+                  onChange={(e) => setNewDesigForm({ ...newDesigForm, code: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-3 focus:outline-none focus:bg-white text-xs text-slate-800 placeholder-slate-400 uppercase"
+                />
+              </div>
+            </div>
+            <button 
+              type="submit" 
+              disabled={isCreatingDesig}
+              className="w-full py-2 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              {isCreatingDesig ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Registering...</span>
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Register Designation</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   const renderSystemControl = () => {
     return (
       <div className="space-y-6">
@@ -1977,13 +2206,13 @@ export default function Dashboard() {
               <Shield className="w-5.5 h-5.5 text-[#004225]" />
               <span>System Control & Role-Based Access Control (RBAC)</span>
             </h2>
-            <p className="text-xs text-slate-500">Root-level tenant configuration, live database status, and real-time user role management.</p>
+            <p className="text-xs text-slate-500 font-medium">Root-level tenant configuration, live database status, and real-time user role management.</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleSeedData}
               disabled={seeding}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-705 text-white text-xs font-bold rounded-xl transition-all shadow-xs border border-amber-700 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-705 text-white text-xs font-bold rounded-xl transition-all shadow-xs border border-amber-700 disabled:opacity-50 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>{seeding ? 'Seeding...' : 'Seed Sample Data'}</span>
@@ -2006,9 +2235,233 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* User Directory for Role Management */}
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+        {/* Sub-tabs Selector */}
+        <div className="flex border-b border-slate-200">
+          <button
+            onClick={() => setControlSubTab('Overview')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+              controlSubTab === 'Overview'
+                ? 'border-[#2D6A4F] text-[#2D6A4F] bg-[#2D6A4F]/5'
+                : 'border-transparent text-slate-500 hover:text-[#2D6A4F]'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            <span>Dashboard Overview</span>
+          </button>
+          <button
+            onClick={() => setControlSubTab('RBAC')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+              controlSubTab === 'RBAC'
+                ? 'border-[#2D6A4F] text-[#2D6A4F] bg-[#2D6A4F]/5'
+                : 'border-transparent text-slate-500 hover:text-[#2D6A4F]'
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Role Directory (RBAC)</span>
+          </button>
+          <button
+            onClick={() => setControlSubTab('Org Setup')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+              controlSubTab === 'Org Setup'
+                ? 'border-[#2D6A4F] text-[#2D6A4F] bg-[#2D6A4F]/5'
+                : 'border-transparent text-slate-500 hover:text-[#2D6A4F]'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>Org Setup</span>
+          </button>
+        </div>
+
+        {controlSubTab === 'Overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Side: Stats and Chart */}
+            <div className="lg:col-span-8 space-y-6">
+              {/* Analytics Counters */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs hover:border-[#2D6A4F]/30 transition-all flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Workforce Size</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-extrabold text-slate-800">{realEmployees.length}</span>
+                    <span className="text-[10px] font-semibold text-slate-500">Active</span>
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs hover:border-[#2D6A4F]/30 transition-all flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Today Present</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-extrabold text-slate-800">{liveStats.activeAttendance}</span>
+                    <span className="text-[10px] font-semibold text-emerald-600">On Duty</span>
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs hover:border-[#2D6A4F]/30 transition-all flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Pending Leaves</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-extrabold text-slate-800">{realLeaves.filter(l => l.status === 'PENDING').length}</span>
+                    <span className="text-[10px] font-semibold text-amber-600">Review</span>
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs hover:border-[#2D6A4F]/30 transition-all flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Open Tickets</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-extrabold text-slate-800">{realTickets.filter(t => t.status === 'OPEN').length}</span>
+                    <span className="text-[10px] font-semibold text-red-500">Tickets</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Department Distribution */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-4 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-[#2D6A4F]" />
+                  <span>Workforce Distribution by Department</span>
+                </h3>
+                <div className="space-y-4">
+                  {departments.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-4">No departments configured. Go to Org Setup to add departments.</p>
+                  ) : (
+                    departments.map(dept => {
+                      const count = realEmployees.filter(e => e.departmentId === dept.id).length;
+                      const percent = realEmployees.length > 0 ? (count / realEmployees.length) * 100 : 0;
+                      return (
+                        <div key={dept.id} className="space-y-1">
+                          <div className="flex justify-between text-xs font-semibold">
+                            <span className="text-slate-700">{dept.name} ({dept.code})</span>
+                            <span className="text-slate-500">{count} employees ({percent.toFixed(0)}%)</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2">
+                            <div 
+                              className="bg-[#2D6A4F] h-2 rounded-full transition-all duration-500" 
+                              style={{ width: `${percent}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Performance SVG Telemetry */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-2 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-[#2D6A4F]" />
+                  <span>Database Engine Performance Logs</span>
+                </h3>
+                <p className="text-[10px] text-slate-450 mb-4">Real-time telemetry of query latency and node connectivity</p>
+                <div className="h-28 w-full relative flex items-end">
+                  <svg className="w-full h-full overflow-visible" viewBox="0 0 300 100" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#2D6A4F" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="#2D6A4F" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+                    <path
+                      d="M 0 80 Q 50 20 100 60 T 200 40 T 300 70 L 300 100 L 0 100 Z"
+                      fill="url(#chartGrad)"
+                    />
+                    <path
+                      d="M 0 80 Q 50 20 100 60 T 200 40 T 300 70"
+                      fill="none"
+                      stroke="#2D6A4F"
+                      strokeWidth="2"
+                    />
+                    <circle cx="50" cy="35" r="3" fill="#1B4332" />
+                    <circle cx="150" cy="50" r="3" fill="#1B4332" />
+                    <circle cx="250" cy="55" r="3" fill="#1B4332" />
+                  </svg>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400 font-semibold mt-2.5">
+                  <span>09:00 AM</span>
+                  <span>12:00 PM</span>
+                  <span>03:00 PM</span>
+                  <span className="text-[#2D6A4F]">Avg Query: 14ms (Optimal)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Side: Connections & Commands */}
+            <div className="lg:col-span-4 space-y-6">
+              {/* Connection Status */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-4 flex items-center gap-1.5">
+                  <Settings className="w-4 h-4 text-[#2D6A4F]" />
+                  <span>System Connection Registry</span>
+                </h3>
+                
+                <div className="space-y-3.5 text-xs">
+                  <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+                    <span className="text-slate-455 font-medium">Database Node (Prisma)</span>
+                    <span className={`px-2 py-0.5 text-[9px] font-black uppercase rounded ${
+                      isDbConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {isDbConnected ? 'Connected' : 'Offline'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+                    <span className="text-slate-455 font-medium">Firebase Auth Server</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase rounded">Online</span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+                    <span className="text-slate-455 font-medium">Firebase Admin Node</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase rounded">Configured</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-455 font-medium">Tenant Isolation Mode</span>
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[9px] font-black uppercase rounded">Multi-Tenant</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Commands Toolset */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-4 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-[#2D6A4F]" />
+                  <span>System Commands Toolset</span>
+                </h3>
+                
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button 
+                    onClick={() => {
+                      setRbacStatus({ type: 'success', text: 'System cache cleared successfully. All active sessions verified.' });
+                      setRbacLogs(prev => [`[${new Date().toLocaleTimeString()}] Triggered cache flush and verified session tokens.`, ...prev]);
+                    }}
+                    className="py-2.5 px-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[10px] font-bold rounded-xl transition-all cursor-pointer"
+                  >
+                    Flush System Cache
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setRbacStatus({ type: 'success', text: `Integrity check complete: audited ${dbUsers.length} user records successfully.` });
+                      setRbacLogs(prev => [`[${new Date().toLocaleTimeString()}] Triggered database integrity audit. No corruption detected.`, ...prev]);
+                    }}
+                    className="py-2.5 px-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[10px] font-bold rounded-xl transition-all cursor-pointer"
+                  >
+                    Database Audit
+                  </button>
+                </div>
+              </div>
+
+              {/* Audit Logs Feed */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-3 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-[#2D6A4F]" />
+                  <span>Audit Logs Feed</span>
+                </h3>
+                
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {rbacLogs.map((logStr, idx) => (
+                    <div key={idx} className="p-2 bg-slate-50 rounded-lg text-[9px] font-mono text-slate-500 leading-tight border border-slate-100">
+                      {logStr}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {controlSubTab === 'RBAC' && (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-150 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-slate-800 text-sm tracking-tight">Active Accounts Registry</h3>
@@ -2023,7 +2476,7 @@ export default function Dashboard() {
                 )}
                 <button
                   onClick={() => setIsUserModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-[10px] font-bold rounded-xl transition-all shadow-xs flex-shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-[10px] font-bold rounded-xl transition-all shadow-xs flex-shrink-0 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add User</span>
@@ -2031,7 +2484,7 @@ export default function Dashboard() {
                 <button
                   onClick={handleSyncFirebaseUsers}
                   disabled={syncingFirebase || loadingDbUsers}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-[#2D6A4F]/10 hover:bg-[#2D6A4F]/20 text-[#2D6A4F] hover:text-[#1B4332] text-[10px] font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-[#2D6A4F]/15 flex-shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1 bg-[#2D6A4F]/10 hover:bg-[#2D6A4F]/20 text-[#2D6A4F] hover:text-[#1B4332] text-[10px] font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-[#2D6A4F]/15 flex-shrink-0 cursor-pointer"
                 >
                   <RefreshCw className={`w-3 h-3 ${syncingFirebase ? 'animate-spin' : ''}`} />
                   <span>{syncingFirebase ? 'Syncing...' : 'Sync Firebase Users'}</span>
@@ -2057,131 +2510,62 @@ export default function Dashboard() {
                       </td>
                     </tr>
                   ) : (
-                    dbUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50/40 transition-all">
-                        <td className="py-3.5 px-5 font-mono text-[10px] text-slate-400 font-semibold">{u.id}</td>
-                        <td className="py-3.5 px-5 font-bold text-slate-800">{u.email}</td>
-                        <td className="py-3.5 px-5">
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border mr-2 ${
-                            u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-100' :
-                            u.role === 'ORG_ADMIN' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
-                            u.role === 'HR_MANAGER' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                            'bg-slate-50 text-slate-700 border-slate-105'
-                          }`}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-5 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <select
-                              value={u.role}
-                              onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
-                              className="bg-slate-50 border border-slate-200 text-[11px] rounded-lg py-1 px-2 text-slate-655 focus:outline-none focus:border-brand-green/20"
-                            >
-                              {Object.values(Role).map((r) => (
-                                <option key={r} value={r}>
-                                  {r}
-                                </option>
-                              ))}
-                            </select>
-                            {u.email !== user?.email && (
-                              <button
-                                onClick={() => handleDeleteUser(u.id, u.email)}
-                                className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15"
-                                title="Delete User"
+                    dbUsers.map((u) => {
+                      const isSuperAdminTarget = u.role === 'SUPER_ADMIN';
+                      const isOrgAdminCaller = selectedRole === 'ORG_ADMIN';
+                      const disableActions = isSuperAdminTarget && isOrgAdminCaller;
+
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-50/40 transition-all">
+                          <td className="py-3.5 px-5 font-mono text-[10px] text-slate-400 font-semibold">{u.id}</td>
+                          <td className="py-3.5 px-5 font-bold text-slate-800">{u.email}</td>
+                          <td className="py-3.5 px-5">
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border mr-2 ${
+                              u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-100' :
+                              u.role === 'ORG_ADMIN' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+                              u.role === 'HR_MANAGER' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                              'bg-slate-50 text-slate-700 border-slate-105'
+                            }`}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <select
+                                value={u.role}
+                                disabled={disableActions}
+                                onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
+                                className="bg-slate-50 border border-slate-200 text-[11px] rounded-lg py-1 px-2 text-slate-655 focus:outline-none focus:border-brand-green/20 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Delete
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                                {Object.values(Role).map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
+                              </select>
+                              {u.email !== user?.email && (
+                                <button
+                                  onClick={() => handleDeleteUser(u.id, u.email)}
+                                  disabled={disableActions}
+                                  className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title={disableActions ? "You do not have permissions to delete a SUPER_ADMIN" : "Delete User"}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
           </div>
+        )}
 
-          {/* Right Panel: Health & Audit Logs */}
-          <div className="lg:col-span-4 space-y-6">
-            {/* System Status Indicators */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-4 flex items-center gap-1.5">
-                <Settings className="w-4 h-4 text-[#2D6A4F]" />
-                <span>System Connection Registry</span>
-              </h3>
-              
-              <div className="space-y-3.5 text-xs">
-                <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-                  <span className="text-slate-455 font-medium">Database Node (Prisma)</span>
-                  <span className={`px-2 py-0.5 text-[9px] font-black uppercase rounded ${
-                    isDbConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {isDbConnected ? 'Connected' : 'Offline'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-                  <span className="text-slate-455 font-medium">Firebase Auth Server</span>
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase rounded">Online</span>
-                </div>
-                <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-                  <span className="text-slate-455 font-medium">Firebase Admin Node</span>
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black uppercase rounded">Configured</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-455 font-medium">Tenant Isolation Mode</span>
-                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[9px] font-black uppercase rounded">Multi-Tenant</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick System Diagnostics */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-4 flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-[#2D6A4F]" />
-                <span>System Commands Toolset</span>
-              </h3>
-              
-              <div className="grid grid-cols-2 gap-2.5">
-                <button 
-                  onClick={() => {
-                    setRbacStatus({ type: 'success', text: 'System cache cleared successfully. All active sessions verified.' });
-                    setRbacLogs(prev => [`[${new Date().toLocaleTimeString()}] Triggered cache flush and verified session tokens.`, ...prev]);
-                  }}
-                  className="py-2.5 px-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[10px] font-bold rounded-xl transition-all"
-                >
-                  Flush System Cache
-                </button>
-                <button 
-                  onClick={() => {
-                    setRbacStatus({ type: 'success', text: `Integrity check complete: audited ${dbUsers.length} user records successfully.` });
-                    setRbacLogs(prev => [`[${new Date().toLocaleTimeString()}] Triggered database integrity audit. No corruption detected.`, ...prev]);
-                  }}
-                  className="py-2.5 px-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[10px] font-bold rounded-xl transition-all"
-                >
-                  Database Audit
-                </button>
-              </div>
-            </div>
-
-            {/* Audit Logs */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-3 flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-[#2D6A4F]" />
-                <span>Audit Logs Feed</span>
-              </h3>
-              
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {rbacLogs.map((logStr, idx) => (
-                  <div key={idx} className="p-2 bg-slate-50 rounded-lg text-[9px] font-mono text-slate-500 leading-tight border border-slate-100">
-                    {logStr}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        {controlSubTab === 'Org Setup' && renderOrgSetup()}
 
         {/* Add User Modal */}
         {isUserModalOpen && (
@@ -2189,7 +2573,7 @@ export default function Dashboard() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-[380px] p-6 text-left">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-slate-800 text-sm">Add New User Account</h3>
-                <button onClick={() => setIsUserModalOpen(false)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-650">
+                <button onClick={() => setIsUserModalOpen(false)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-655 cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -2223,7 +2607,7 @@ export default function Dashboard() {
                   <select
                     value={userForm.role}
                     onChange={(e) => setUserForm({...userForm, role: e.target.value as Role})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-600"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-650"
                   >
                     {Object.values(Role).map((r) => (
                       <option key={r} value={r}>{r}</option>
@@ -2233,7 +2617,7 @@ export default function Dashboard() {
 
                 <button 
                   type="submit" 
-                  className="w-full mt-4 py-2.5 bg-[#2D6A4F] hover:bg-[#204f3b] text-white font-bold rounded-xl transition-all shadow-xs"
+                  className="w-full mt-4 py-2.5 bg-[#2D6A4F] hover:bg-[#204f3b] text-white font-bold rounded-xl transition-all shadow-xs cursor-pointer"
                 >
                   Create User Profile
                 </button>
