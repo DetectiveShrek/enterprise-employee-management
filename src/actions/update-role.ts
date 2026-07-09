@@ -44,6 +44,9 @@ export async function updateUserRoleAction(userId: string, newRole: Role) {
 export async function getUsersAction() {
   try {
     const users = await prisma.user.findMany({
+      include: {
+        employeeProfile: true
+      },
       orderBy: {
         createdAt: 'desc'
       }
@@ -52,7 +55,8 @@ export async function getUsersAction() {
     const safeUsers = users.map(u => ({
       id: u.id,
       email: u.email,
-      role: u.role
+      role: u.role,
+      status: u.employeeProfile?.status || 'Active'
     }));
 
     return { success: true, users: safeUsers };
@@ -116,7 +120,7 @@ export async function syncFirebaseUsersAction() {
   }
 }
 
-export async function createUserAction(email: string, role: Role, password?: string) {
+export async function createUserAction(email: string, role: Role, password?: string, creatorRole?: Role) {
   try {
     if (!email) {
       return { success: false, error: 'Email is required' };
@@ -175,7 +179,7 @@ export async function createUserAction(email: string, role: Role, password?: str
         lastName: 'Employee',
         joiningDate: new Date(),
         employmentType: 'Full-time',
-        status: 'Active',
+        status: creatorRole === Role.ORG_ADMIN ? 'Pending Approval' : 'Active',
       },
     });
     
@@ -273,5 +277,31 @@ export async function deleteUserAction(userId: string) {
   } catch (error) {
     console.error('Error in deleteUserAction:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Failed to delete user' };
+  }
+}
+
+export async function approveUserAction(userId: string) {
+  try {
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    const employee = await prisma.employee.findUnique({
+      where: { userId }
+    });
+
+    if (!employee) {
+      return { success: false, error: 'Employee profile not found.' };
+    }
+
+    await prisma.employee.update({
+      where: { userId },
+      data: { status: 'Active' }
+    });
+
+    return { success: true, message: `User status approved successfully.` };
+  } catch (error) {
+    console.error('Error in approveUserAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to approve user' };
   }
 }
