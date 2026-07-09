@@ -684,6 +684,24 @@ export async function createPayrollAction(data: {
   creatorRole?: Role;
 }) {
   try {
+    // Check if a payroll record already exists for this employee for the selected period
+    const existing = await prisma.payroll.findUnique({
+      where: {
+        employeeId_month_year: {
+          employeeId: data.employeeId,
+          month: data.month,
+          year: data.year
+        }
+      }
+    });
+
+    if (existing) {
+      return { 
+        success: false, 
+        error: "A payroll record has already been generated for this employee for the selected month and year." 
+      };
+    }
+
     const basic = data.basicSalary;
     const hra = basic * 0.4;
     const pf = basic * 0.12;
