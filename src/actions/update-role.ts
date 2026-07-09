@@ -305,3 +305,43 @@ export async function approveUserAction(userId: string) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to approve user' };
   }
 }
+
+export async function requestDeleteUserAction(userId: string, requesterRole: Role) {
+  try {
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { employeeProfile: true }
+    });
+
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    if (user.role === Role.SUPER_ADMIN) {
+      return { success: false, error: 'Cannot delete or request deletion of a SUPER_ADMIN user.' };
+    }
+
+    if (requesterRole === Role.ORG_ADMIN) {
+      // Set status to 'Pending Deletion'
+      if (user.employeeProfile) {
+        await prisma.employee.update({
+          where: { userId },
+          data: { status: 'Pending Deletion' }
+        });
+      }
+      return { success: true, requested: true, message: 'Deletion request submitted for approval.' };
+    } else if (requesterRole === Role.SUPER_ADMIN) {
+      // Direct deletion
+      return deleteUserAction(userId);
+    } else {
+      return { success: false, error: 'Unauthorized to delete users.' };
+    }
+  } catch (error) {
+    console.error('Error in requestDeleteUserAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to process deletion request' };
+  }
+}

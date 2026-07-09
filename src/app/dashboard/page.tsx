@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { Logo } from '@/components/logo';
 import { motion, AnimatePresence } from 'framer-motion';
-import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction, deleteUserAction, approveUserAction } from '@/actions/update-role';
+import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction, deleteUserAction, approveUserAction, requestDeleteUserAction } from '@/actions/update-role';
 import { Role, LeaveType, LeaveStatus, AttendanceStatus, AssetStatus, TicketStatus, TicketPriority } from '@prisma/client';
 import { 
   Users, Clock, CalendarRange, 
@@ -273,7 +273,7 @@ export default function Dashboard() {
         const res = await getLeaveRequestsListAction(user?.email || undefined, selectedRole as Role);
         if (res.success && res.requests) setRealLeaves(res.requests);
       } else if (activeTab === 'Payroll') {
-        const res = await getPayrollsListAction();
+        const res = await getPayrollsListAction(user?.email || undefined, selectedRole as Role);
         if (res.success && res.payrolls) setRealPayrolls(res.payrolls);
         const empRes = await getEmployeesListAction();
         if (empRes.success && empRes.employees) setRealEmployees(empRes.employees);
@@ -442,17 +442,26 @@ export default function Dashboard() {
   };
 
   const handleDeleteUser = async (userId: string, email: string) => {
-    if (!confirm(`Are you sure you want to delete user ${email}? This will also delete their Employee Profile and related records.`)) {
+    const isDirect = selectedRole === 'SUPER_ADMIN';
+    const msg = isDirect 
+      ? `Are you sure you want to delete user ${email}? This will permanently delete their profile and all related database records.`
+      : `Are you sure you want to request deletion of user ${email}? This request will need approval from a SUPER_ADMIN.`;
+
+    if (!confirm(msg)) {
       return;
     }
     setRbacStatus(null);
     try {
-      const res = await deleteUserAction(userId);
+      const res = await requestDeleteUserAction(userId, selectedRole as Role);
       if (res.success) {
-        setDbUsers(prev => prev.filter(u => u.id !== userId));
-        setRbacStatus({ type: 'success', text: res.message || `Successfully deleted user ${email}.` });
+        if (res.requested) {
+          setRbacStatus({ type: 'success', text: `Deletion request for ${email} submitted for approval.` });
+        } else {
+          setDbUsers(prev => prev.filter(u => u.id !== userId));
+          setRbacStatus({ type: 'success', text: res.message || `Successfully deleted user ${email}.` });
+        }
         setRbacLogs(prev => [
-          `[${new Date().toLocaleTimeString()}] Deleted user ${email} (ID: ${userId}).`,
+          `[${new Date().toLocaleTimeString()}] ${res.requested ? 'Requested deletion of' : 'Deleted'} user ${email} (ID: ${userId}).`,
           ...prev
         ]);
         fetchTabData();
@@ -2542,7 +2551,8 @@ export default function Dashboard() {
                     </tr>
                   ) : (
                     dbUsers.map((u) => {
-                      const disableActions = selectedRole !== 'SUPER_ADMIN';
+                      const disableRoleEdit = selectedRole !== 'SUPER_ADMIN';
+                      const disableDelete = (selectedRole !== 'SUPER_ADMIN' && selectedRole !== 'ORG_ADMIN') || (u.role === 'SUPER_ADMIN' && selectedRole !== 'SUPER_ADMIN');
 
                       return (
                         <tr key={u.id} className="hover:bg-slate-50/40 transition-all">
@@ -2560,6 +2570,11 @@ export default function Dashboard() {
                             {u.status === 'Pending Approval' && (
                               <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-100">
                                 Pending Approval
+                              </span>
+                            )}
+                            {u.status === 'Pending Deletion' && (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase border bg-red-50 text-red-750 border-red-100">
+                                Pending Deletion
                               </span>
                             )}
                           </td>
@@ -2586,9 +2601,24 @@ export default function Dashboard() {
                                   Approve User
                                 </button>
                               )}
+                              {u.status === 'Pending Deletion' && selectedRole === 'SUPER_ADMIN' && (
+                                <button
+                                  onClick={async () => {
+                                    setRbacStatus(null);
+                                    try {
+                                      await handleDeleteUser(u.id, u.email);
+                                    } catch (err) {
+                                      setRbacStatus({ type: 'error', text: 'Error executing deletion.' });
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15 cursor-pointer mr-1 animate-pulse"
+                                >
+                                  Approve Deletion
+                                </button>
+                              )}
                               <select
                                 value={u.role}
-                                disabled={disableActions}
+                                disabled={disableRoleEdit}
                                 onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
                                 className="bg-slate-50 border border-slate-200 text-[11px] rounded-lg py-1 px-2 text-slate-655 focus:outline-none focus:border-brand-green/20 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
@@ -2601,9 +2631,9 @@ export default function Dashboard() {
                               {u.email !== user?.email && (
                                 <button
                                   onClick={() => handleDeleteUser(u.id, u.email)}
-                                  disabled={disableActions}
+                                  disabled={disableDelete}
                                   className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title={disableActions ? "You do not have permission to manage user roles or credentials" : "Delete User"}
+                                  title={disableDelete ? "You do not have permission to delete this user" : "Delete User"}
                                 >
                                   Delete
                                 </button>

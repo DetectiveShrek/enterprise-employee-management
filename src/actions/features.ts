@@ -645,14 +645,31 @@ export async function updateLeaveStatusAction(requestId: string, newStatus: Leav
 // -------------------------------------------------------------
 // PAYROLL ACTIONS
 // -------------------------------------------------------------
-export async function getPayrollsListAction() {
+export async function getPayrollsListAction(email?: string, role?: Role) {
   try {
-    const payrolls = await prisma.payroll.findMany({
-      include: {
-        employee: true
-      },
-      orderBy: { year: 'desc', month: 'desc' }
-    });
+    let payrolls: any[] = [];
+    if (role === Role.SUPER_ADMIN || role === Role.ORG_ADMIN || role === Role.HR_MANAGER) {
+      payrolls = await prisma.payroll.findMany({
+        include: {
+          employee: true
+        },
+        orderBy: { year: 'desc', month: 'desc' }
+      });
+    } else if (email) {
+      const employee = await prisma.employee.findUnique({
+        where: { email }
+      });
+      if (!employee) {
+        return { success: true, payrolls: [] };
+      }
+      payrolls = await prisma.payroll.findMany({
+        where: { employeeId: employee.id },
+        include: {
+          employee: true
+        },
+        orderBy: { year: 'desc', month: 'desc' }
+      });
+    }
     return { success: true, payrolls };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to fetch payrolls" };
