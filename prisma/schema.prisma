@@ -68,6 +68,7 @@ enum AssetStatus {
   ASSIGNED
   MAINTENANCE
   RETIRED
+  REQUESTED
 }
 
 enum TicketStatus {

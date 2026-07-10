@@ -34,6 +34,9 @@ import {
   getAssetsListAction,
   createAssetAction,
   assignAssetAction,
+  requestAssetAction,
+  approveAssetRequestAction,
+  rejectAssetRequestAction,
   getTicketsListAction,
   createTicketAction,
   updateTicketStatusAction,
@@ -473,7 +476,7 @@ export default function Dashboard() {
     }
     setRbacStatus(null);
     try {
-      const res = await requestDeleteUserAction(userId, selectedRole as Role);
+      const res = await requestDeleteUserAction(userId, selectedRole as Role) as any;
       if (res.success) {
         if (res.requested) {
           setRbacStatus({ type: 'success', text: `Deletion request for ${email} submitted for approval.` });
@@ -542,7 +545,7 @@ export default function Dashboard() {
       );
 
       if (res.success) {
-        setSelfStatus({ type: 'success', text: res.message });
+        setSelfStatus({ type: 'success', text: res.message || 'Credentials updated successfully.' });
         setSelfPassword('');
         // Sync local auth context email state
         if (updateLocalUserEmail && selfEmail !== user.email) {
@@ -583,7 +586,7 @@ export default function Dashboard() {
         setAdminCredEmail('');
         setAdminCredPassword('');
         setSelectedUserForCred(null);
-        setRbacStatus({ type: 'success', text: res.message });
+        setRbacStatus({ type: 'success', text: res.message || 'Credentials updated successfully.' });
         setRbacLogs(prev => [
           `[${new Date().toLocaleTimeString()}] Admin updated credentials for user ${selectedUserForCred.email}.`,
           ...prev
@@ -786,6 +789,58 @@ export default function Dashboard() {
       }
     } catch (err) {
       setRbacStatus({ type: 'error', text: 'Error updating asset assignment.' });
+    }
+  };
+
+  const handleRequestAsset = async (assetId: string) => {
+    if (!user?.email) return;
+    setRbacStatus(null);
+    const currentEmployee = realEmployees.find((e: any) => e.email === user.email);
+    if (!currentEmployee) {
+      setRbacStatus({ type: 'error', text: 'Active employee profile not found.' });
+      return;
+    }
+
+    try {
+      const res = await requestAssetAction(assetId, currentEmployee.id);
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: 'Asset request submitted successfully.' });
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to submit asset request.' });
+      }
+    } catch (err) {
+      setRbacStatus({ type: 'error', text: 'Error requesting asset.' });
+    }
+  };
+
+  const handleApproveAssetRequest = async (assetId: string) => {
+    setRbacStatus(null);
+    try {
+      const res = await approveAssetRequestAction(assetId, selectedRole as Role);
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: 'Asset request approved successfully.' });
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to approve asset request.' });
+      }
+    } catch (err) {
+      setRbacStatus({ type: 'error', text: 'Error approving asset request.' });
+    }
+  };
+
+  const handleRejectAssetRequest = async (assetId: string) => {
+    setRbacStatus(null);
+    try {
+      const res = await rejectAssetRequestAction(assetId);
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: 'Asset request declined.' });
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to decline asset request.' });
+      }
+    } catch (err) {
+      setRbacStatus({ type: 'error', text: 'Error declining asset request.' });
     }
   };
 
@@ -1781,13 +1836,13 @@ export default function Dashboard() {
                   <th className="py-3 px-5">Type</th>
                   <th className="py-3 px-5">Assignment Status</th>
                   <th className="py-3 px-5">Allocated To</th>
-                  {selectedRole !== 'EMPLOYEE' && <th className="py-3 px-5 text-right">Actions</th>}
+                  <th className="py-3 px-5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-655 bg-white">
                 {realAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={selectedRole !== 'EMPLOYEE' ? 6 : 5} className="py-8 text-center text-slate-400 text-xs font-semibold">
+                    <td colSpan={6} className="py-8 text-center text-slate-400 text-xs font-semibold">
                       No assets found in database. Seed sample data or add one!
                     </td>
                   </tr>
@@ -1800,6 +1855,7 @@ export default function Dashboard() {
                       <td className="py-3.5 px-5">
                         <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border ${
                           asset.status === 'AVAILABLE' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                          asset.status === 'REQUESTED' ? 'bg-amber-50 text-amber-700 border-amber-100' :
                           'bg-blue-50 text-blue-700 border-blue-100'
                         }`}>
                           {asset.status}
@@ -1809,43 +1865,108 @@ export default function Dashboard() {
                         {asset.allocatedTo ? (
                           <>
                             <span className="block font-semibold">{asset.allocatedTo.firstName} {asset.allocatedTo.lastName}</span>
-                            <span className="block text-[9px] text-slate-455 font-mono">Since: {new Date(asset.allocatedDate).toLocaleDateString()}</span>
+                            <span className="block text-[9px] text-slate-455 font-mono">
+                              {asset.status === 'REQUESTED' ? 'Requested' : 'Since'}: {new Date(asset.allocatedDate).toLocaleDateString()}
+                            </span>
                           </>
                         ) : 'Unallocated'}
                       </td>
-                      {selectedRole !== 'EMPLOYEE' && (
-                        <td className="py-3.5 px-5 text-right">
-                          {asset.status === 'AVAILABLE' ? (
-                            <button
-                              onClick={() => setSelectedAssetForAssign(asset)}
-                              className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg font-black text-[9px] uppercase border border-emerald-500/15"
-                            >
-                              Assign
-                            </button>
-                          ) : (
-                            <button
-                              onClick={async () => {
-                                setSelectedAssetForAssign(asset);
-                                // Directly reclaiming
-                                setRbacStatus(null);
-                                try {
-                                  const res = await assignAssetAction(asset.id, null);
-                                  if (res.success) {
-                                    setSelectedAssetForAssign(null);
-                                    setRbacStatus({ type: 'success', text: 'Asset reclaimed successfully.' });
-                                    fetchTabData();
-                                  }
-                                } catch (err) {
-                                  console.error(err);
-                                }
-                              }}
-                              className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15"
-                            >
-                              Reclaim
-                            </button>
+                      <td className="py-3.5 px-5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {asset.status === 'AVAILABLE' && (
+                            <>
+                              {(selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') && (
+                                <button
+                                  onClick={() => setSelectedAssetForAssign(asset)}
+                                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg font-black text-[9px] uppercase border border-emerald-500/15 cursor-pointer"
+                                >
+                                  Assign
+                                </button>
+                              )}
+                              {selectedRole !== 'SUPER_ADMIN' && (
+                                <button
+                                  onClick={() => handleRequestAsset(asset.id)}
+                                  className="px-2.5 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 rounded-lg font-black text-[9px] uppercase border border-blue-500/15 cursor-pointer"
+                                >
+                                  Request
+                                </button>
+                              )}
+                            </>
                           )}
-                        </td>
-                      )}
+
+                          {asset.status === 'REQUESTED' && (
+                            <>
+                              {asset.allocatedTo?.user?.role === 'ORG_ADMIN' ? (
+                                selectedRole === 'SUPER_ADMIN' ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleApproveAssetRequest(asset.id)}
+                                      className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg font-black text-[9px] uppercase border border-emerald-500/15 cursor-pointer"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      onClick={() => handleRejectAssetRequest(asset.id)}
+                                      className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-700 rounded-lg font-black text-[9px] uppercase border border-red-500/15 cursor-pointer"
+                                    >
+                                      Decline
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] text-amber-600 font-semibold italic">Pending Super Admin Approval</span>
+                                )
+                              ) : (
+                                (selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleApproveAssetRequest(asset.id)}
+                                      className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg font-black text-[9px] uppercase border border-emerald-500/15 cursor-pointer"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      onClick={() => handleRejectAssetRequest(asset.id)}
+                                      className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-700 rounded-lg font-black text-[9px] uppercase border border-red-500/15 cursor-pointer"
+                                    >
+                                      Decline
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] text-slate-550 font-semibold italic">Pending Approval</span>
+                                )
+                              )}
+                            </>
+                          )}
+
+                          {asset.status === 'ASSIGNED' && (
+                            <>
+                              {(selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') ? (
+                                <button
+                                  onClick={async () => {
+                                    setSelectedAssetForAssign(asset);
+                                    setRbacStatus(null);
+                                    try {
+                                      const res = await assignAssetAction(asset.id, null);
+                                      if (res.success) {
+                                        setSelectedAssetForAssign(null);
+                                        setRbacStatus({ type: 'success', text: 'Asset reclaimed successfully.' });
+                                        fetchTabData();
+                                      }
+                                    } catch (err) {
+                                      console.error(err);
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15 cursor-pointer"
+                                >
+                                  Reclaim
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 font-medium">Assigned</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}

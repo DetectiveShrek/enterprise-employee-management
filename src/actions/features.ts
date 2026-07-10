@@ -763,7 +763,11 @@ export async function getAssetsListAction() {
   try {
     const assets = await prisma.asset.findMany({
       include: {
-        allocatedTo: true
+        allocatedTo: {
+          include: {
+            user: true
+          }
+        }
       },
       orderBy: { name: 'asc' }
     });
@@ -806,6 +810,79 @@ export async function assignAssetAction(assetId: string, employeeId: string | nu
     return { success: true, asset: JSON.parse(JSON.stringify(updated)) };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to assign asset" };
+  }
+}
+
+export async function requestAssetAction(assetId: string, employeeId: string) {
+  try {
+    const updated = await prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        status: 'REQUESTED' as any,
+        allocatedToId: employeeId,
+        allocatedDate: new Date()
+      }
+    });
+    return { success: true, asset: JSON.parse(JSON.stringify(updated)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to request asset" };
+  }
+}
+
+export async function approveAssetRequestAction(assetId: string, approverRole: Role) {
+  try {
+    const asset = await prisma.asset.findUnique({
+      where: { id: assetId },
+      include: {
+        allocatedTo: {
+          include: { user: true }
+        }
+      }
+    });
+
+    if (!asset) {
+      return { success: false, error: "Asset not found" };
+    }
+
+    if (asset.status !== ('REQUESTED' as any)) {
+      return { success: false, error: "Asset is not in requested state" };
+    }
+
+    const requesterRole = asset.allocatedTo?.user?.role;
+
+    // Validate permission: if requester is ORG_ADMIN, only SUPER_ADMIN can approve
+    if (requesterRole === Role.SUPER_ADMIN || requesterRole === Role.ORG_ADMIN) {
+      if (approverRole !== Role.SUPER_ADMIN) {
+        return { success: false, error: "Only Super Admins can approve asset requests from Admins." };
+      }
+    }
+
+    const updated = await prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        status: AssetStatus.ASSIGNED
+      }
+    });
+
+    return { success: true, asset: JSON.parse(JSON.stringify(updated)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to approve asset request" };
+  }
+}
+
+export async function rejectAssetRequestAction(assetId: string) {
+  try {
+    const updated = await prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        status: AssetStatus.AVAILABLE,
+        allocatedToId: null,
+        allocatedDate: null
+      }
+    });
+    return { success: true, asset: JSON.parse(JSON.stringify(updated)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to reject asset request" };
   }
 }
 
