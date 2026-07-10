@@ -655,7 +655,7 @@ export async function getPayrollsListAction(email?: string, role?: Role) {
         include: {
           employee: true
         },
-        orderBy: { year: 'desc', month: 'desc' }
+        orderBy: [ { year: 'desc' }, { month: 'desc' } ]
       });
     } else if (email) {
       const employee = await prisma.employee.findUnique({
@@ -669,7 +669,7 @@ export async function getPayrollsListAction(email?: string, role?: Role) {
         include: {
           employee: true
         },
-        orderBy: { year: 'desc', month: 'desc' }
+        orderBy: [ { year: 'desc' }, { month: 'desc' } ]
       });
     }
     return { success: true, payrolls: JSON.parse(JSON.stringify(payrolls)) };

@@ -304,7 +304,11 @@ export default function Dashboard() {
         if (res.success && res.requests) setRealLeaves(res.requests);
       } else if (activeTab === 'Payroll') {
         const res = await getPayrollsListAction(user?.email || undefined, selectedRole as Role);
-        if (res.success && res.payrolls) setRealPayrolls(res.payrolls);
+        if (res.success && res.payrolls) {
+          setRealPayrolls(res.payrolls);
+        } else {
+          setRbacStatus({ type: 'error', text: res.error || 'Failed to retrieve payrolls.' });
+        }
         const empRes = await getEmployeesListAction();
         if (empRes.success && empRes.employees) setRealEmployees(empRes.employees);
       } else if (activeTab === 'Assets') {
