@@ -281,7 +281,6 @@ export default function Dashboard() {
   // Fetch Database Data for Active Tab
   const fetchTabData = async () => {
     setLoadingTab(true);
-    setRbacStatus(null);
     fetchNotifications();
     try {
       if (activeTab === 'Overview') {
@@ -347,6 +346,7 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    setRbacStatus(null);
     fetchTabData();
   }, [activeTab]);
 
