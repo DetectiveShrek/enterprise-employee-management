@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { Logo } from '@/components/logo';
 import { motion, AnimatePresence } from 'framer-motion';
-import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction, deleteUserAction, approveUserAction, requestDeleteUserAction } from '@/actions/update-role';
+import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction, deleteUserAction, approveUserAction, requestDeleteUserAction, updateUserCredentialsAction } from '@/actions/update-role';
 import { Role, LeaveType, LeaveStatus, AttendanceStatus, AssetStatus, TicketStatus, TicketPriority } from '@prisma/client';
 import { 
   Users, Clock, CalendarRange, 
@@ -14,7 +14,8 @@ import {
   User, Settings, Plus, TrendingUp,
   CheckCircle2, Calendar, MessageSquare,
   Activity, Check, MoreHorizontal, Sparkles,
-  Bot, Send, Loader2, RefreshCw, PlusCircle, AlertCircle
+  Bot, Send, Loader2, RefreshCw, PlusCircle, AlertCircle,
+  Lock, Key
 } from 'lucide-react';
 import {
   seedSampleDataAction,
@@ -44,7 +45,27 @@ import {
 } from '@/actions/features';
 
 export default function Dashboard() {
-  const { user, role, signOut } = useAuth();
+  const { user, role, signOut, updateLocalUserEmail } = useAuth();
+
+  // Self account edit state
+  const [selfEmail, setSelfEmail] = useState('');
+  const [selfPassword, setSelfPassword] = useState('');
+  const [selfSubmitting, setSelfSubmitting] = useState(false);
+  const [selfStatus, setSelfStatus] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  // Admin account edit state for other users
+  const [isCredModalOpen, setIsCredModalOpen] = useState(false);
+  const [selectedUserForCred, setSelectedUserForCred] = useState<any>(null);
+  const [adminCredEmail, setAdminCredEmail] = useState('');
+  const [adminCredPassword, setAdminCredPassword] = useState('');
+  const [adminCredSubmitting, setAdminCredSubmitting] = useState(false);
+  const [adminCredStatus, setAdminCredStatus] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  useEffect(() => {
+    if (user?.email) {
+      setSelfEmail(user.email);
+    }
+  }, [user]);
   
   // Interactive UI States
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -497,6 +518,84 @@ export default function Dashboard() {
       }
     } catch (err) {
       setRbacStatus({ type: 'error', text: 'Error creating user.' });
+    }
+  };
+
+  const handleSelfUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setSelfStatus(null);
+
+    if (selfPassword && selfPassword.length < 6) {
+      setSelfStatus({ type: 'error', text: 'Password must be at least 6 characters long.' });
+      return;
+    }
+
+    setSelfSubmitting(true);
+    try {
+      const res = await updateUserCredentialsAction(
+        user.uid,
+        selfEmail,
+        selfPassword || undefined,
+        user.uid,
+        selectedRole as Role
+      );
+
+      if (res.success) {
+        setSelfStatus({ type: 'success', text: res.message });
+        setSelfPassword('');
+        // Sync local auth context email state
+        if (updateLocalUserEmail && selfEmail !== user.email) {
+          updateLocalUserEmail(selfEmail);
+        }
+      } else {
+        setSelfStatus({ type: 'error', text: res.error || 'Failed to update credentials.' });
+      }
+    } catch (err) {
+      setSelfStatus({ type: 'error', text: err instanceof Error ? err.message : 'Error updating credentials.' });
+    } finally {
+      setSelfSubmitting(false);
+    }
+  };
+
+  const handleAdminUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !selectedUserForCred) return;
+    setAdminCredStatus(null);
+
+    if (adminCredPassword && adminCredPassword.length < 6) {
+      setAdminCredStatus({ type: 'error', text: 'Password must be at least 6 characters long.' });
+      return;
+    }
+
+    setAdminCredSubmitting(true);
+    try {
+      const res = await updateUserCredentialsAction(
+        selectedUserForCred.id,
+        adminCredEmail,
+        adminCredPassword || undefined,
+        user.uid,
+        selectedRole as Role
+      );
+
+      if (res.success) {
+        setIsCredModalOpen(false);
+        setAdminCredEmail('');
+        setAdminCredPassword('');
+        setSelectedUserForCred(null);
+        setRbacStatus({ type: 'success', text: res.message });
+        setRbacLogs(prev => [
+          `[${new Date().toLocaleTimeString()}] Admin updated credentials for user ${selectedUserForCred.email}.`,
+          ...prev
+        ]);
+        fetchTabData();
+      } else {
+        setAdminCredStatus({ type: 'error', text: res.error || 'Failed to update user credentials.' });
+      }
+    } catch (err) {
+      setAdminCredStatus({ type: 'error', text: err instanceof Error ? err.message : 'Error updating user credentials.' });
+    } finally {
+      setAdminCredSubmitting(false);
     }
   };
 
@@ -1645,13 +1744,15 @@ export default function Dashboard() {
             </h2>
             <p className="text-xs text-slate-500 font-medium">Verify hardware/software asset connection states and assign configurations to staff profiles</p>
           </div>
-          <button
-            onClick={() => setIsAssetModalOpen(true)}
-            className="px-4 py-2 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Asset</span>
-          </button>
+          {selectedRole !== 'EMPLOYEE' && (
+            <button
+              onClick={() => setIsAssetModalOpen(true)}
+              className="px-4 py-2 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Asset</span>
+            </button>
+          )}
         </div>
 
         {/* Status Indicator Banner */}
@@ -1680,13 +1781,13 @@ export default function Dashboard() {
                   <th className="py-3 px-5">Type</th>
                   <th className="py-3 px-5">Assignment Status</th>
                   <th className="py-3 px-5">Allocated To</th>
-                  <th className="py-3 px-5 text-right">Actions</th>
+                  {selectedRole !== 'EMPLOYEE' && <th className="py-3 px-5 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-655 bg-white">
                 {realAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 text-xs font-semibold">
+                    <td colSpan={selectedRole !== 'EMPLOYEE' ? 6 : 5} className="py-8 text-center text-slate-400 text-xs font-semibold">
                       No assets found in database. Seed sample data or add one!
                     </td>
                   </tr>
@@ -1708,41 +1809,43 @@ export default function Dashboard() {
                         {asset.allocatedTo ? (
                           <>
                             <span className="block font-semibold">{asset.allocatedTo.firstName} {asset.allocatedTo.lastName}</span>
-                            <span className="block text-[9px] text-slate-450 font-mono">Since: {new Date(asset.allocatedDate).toLocaleDateString()}</span>
+                            <span className="block text-[9px] text-slate-455 font-mono">Since: {new Date(asset.allocatedDate).toLocaleDateString()}</span>
                           </>
                         ) : 'Unallocated'}
                       </td>
-                      <td className="py-3.5 px-5 text-right">
-                        {asset.status === 'AVAILABLE' ? (
-                          <button
-                            onClick={() => setSelectedAssetForAssign(asset)}
-                            className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg font-black text-[9px] uppercase border border-emerald-500/15"
-                          >
-                            Assign
-                          </button>
-                        ) : (
-                          <button
-                            onClick={async () => {
-                              setSelectedAssetForAssign(asset);
-                              // Directly reclaiming
-                              setRbacStatus(null);
-                              try {
-                                const res = await assignAssetAction(asset.id, null);
-                                if (res.success) {
-                                  setSelectedAssetForAssign(null);
-                                  setRbacStatus({ type: 'success', text: 'Asset reclaimed successfully.' });
-                                  fetchTabData();
+                      {selectedRole !== 'EMPLOYEE' && (
+                        <td className="py-3.5 px-5 text-right">
+                          {asset.status === 'AVAILABLE' ? (
+                            <button
+                              onClick={() => setSelectedAssetForAssign(asset)}
+                              className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 rounded-lg font-black text-[9px] uppercase border border-emerald-500/15"
+                            >
+                              Assign
+                            </button>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                setSelectedAssetForAssign(asset);
+                                // Directly reclaiming
+                                setRbacStatus(null);
+                                try {
+                                  const res = await assignAssetAction(asset.id, null);
+                                  if (res.success) {
+                                    setSelectedAssetForAssign(null);
+                                    setRbacStatus({ type: 'success', text: 'Asset reclaimed successfully.' });
+                                    fetchTabData();
+                                  }
+                                } catch (err) {
+                                  console.error(err);
                                 }
-                              } catch (err) {
-                                console.error(err);
-                              }
-                            }}
-                            className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15"
-                          >
-                            Reclaim
-                          </button>
-                        )}
-                      </td>
+                              }}
+                              className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-755 rounded-lg font-black text-[9px] uppercase border border-red-500/15"
+                            >
+                              Reclaim
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -2066,6 +2169,63 @@ export default function Dashboard() {
               <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">Firebase Client ID</label>
               <input type="text" readOnly value="verdanthr-21152" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none text-slate-400 cursor-not-allowed" />
             </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4 lg:col-span-2">
+            <h3 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
+              <Lock className="w-4 h-4 text-[#004225]" />
+              <span>My Account Credentials</span>
+            </h3>
+            <p className="text-[10px] text-slate-500 font-medium">Update your login username (email) and password details below.</p>
+            
+            {selfStatus && (
+              <div className={`p-3 rounded-xl text-[11px] border ${
+                selfStatus.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-100' : 'bg-red-50 text-red-800 border-red-100'
+              }`}>
+                {selfStatus.text}
+              </div>
+            )}
+
+            <form onSubmit={handleSelfUpdateCredentials} className="space-y-4 max-w-md">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">Username (Email Address)</label>
+                <input 
+                  type="email" 
+                  required 
+                  placeholder="name@company.com" 
+                  value={selfEmail}
+                  onChange={(e) => setSelfEmail(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-800" 
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">New Password</label>
+                <input 
+                  type="password" 
+                  placeholder="•••••••• (Leave blank to keep unchanged)" 
+                  value={selfPassword}
+                  onChange={(e) => setSelfPassword(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-800" 
+                />
+              </div>
+              <button 
+                type="submit" 
+                disabled={selfSubmitting}
+                className="py-2 px-4 bg-[#2D6A4F] hover:bg-[#204f3b] text-white font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {selfSubmitting ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Updating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </form>
           </div>
         </div>
       </div>
@@ -2616,6 +2776,22 @@ export default function Dashboard() {
                                   Approve Deletion
                                 </button>
                               )}
+                              {((selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') && !(u.role === 'SUPER_ADMIN' && selectedRole === 'ORG_ADMIN')) && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedUserForCred(u);
+                                    setAdminCredEmail(u.email);
+                                    setAdminCredPassword('');
+                                    setAdminCredStatus(null);
+                                    setIsCredModalOpen(true);
+                                  }}
+                                  className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 rounded-lg font-black text-[9px] uppercase border border-amber-500/15 flex items-center gap-1 cursor-pointer mr-1"
+                                  title="Change Credentials"
+                                >
+                                  <Key className="w-2.5 h-2.5" />
+                                  <span>Keys</span>
+                                </button>
+                              )}
                               <select
                                 value={u.role}
                                 disabled={disableRoleEdit}
@@ -2705,6 +2881,81 @@ export default function Dashboard() {
                   className="w-full mt-4 py-2.5 bg-[#2D6A4F] hover:bg-[#204f3b] text-white font-bold rounded-xl transition-all shadow-xs cursor-pointer"
                 >
                   Create User Profile
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Change User Credentials Modal */}
+        {isCredModalOpen && selectedUserForCred && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-[380px] p-6 text-left">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                  <Key className="w-4 h-4 text-[#004225]" />
+                  <span>Update Account Credentials</span>
+                </h3>
+                <button 
+                  onClick={() => {
+                    setIsCredModalOpen(false);
+                    setSelectedUserForCred(null);
+                  }} 
+                  className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-655 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-[11px] text-slate-500 mb-4">
+                Updating credentials for employee: <strong className="text-slate-700">{selectedUserForCred.email}</strong>
+              </p>
+
+              {adminCredStatus && (
+                <div className={`p-3 rounded-xl text-xs border mb-3 ${
+                  adminCredStatus.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-100' : 'bg-red-50 text-red-800 border-red-100'
+                }`}>
+                  {adminCredStatus.text}
+                </div>
+              )}
+
+              <form onSubmit={handleAdminUpdateCredentials} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">Email / Username</label>
+                  <input 
+                    type="email" 
+                    required 
+                    placeholder="user@company.com"
+                    value={adminCredEmail}
+                    onChange={(e) => setAdminCredEmail(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">New Password</label>
+                  <input 
+                    type="password" 
+                    placeholder="•••••••• (Leave blank to keep unchanged)"
+                    value={adminCredPassword}
+                    onChange={(e) => setAdminCredPassword(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-800"
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={adminCredSubmitting}
+                  className="w-full mt-4 py-2.5 bg-[#2D6A4F] hover:bg-[#204f3b] text-white font-bold rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {adminCredSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating Credentials...</span>
+                    </>
+                  ) : (
+                    <span>Update Account Credentials</span>
+                  )}
                 </button>
               </form>
             </div>

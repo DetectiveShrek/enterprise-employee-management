@@ -39,6 +39,7 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   sendVerificationEmail: () => Promise<void>;
+  updateLocalUserEmail: (newEmail: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -53,6 +54,7 @@ const AuthContext = createContext<AuthContextType>({
   loginWithGoogle: async () => {},
   resetPassword: async () => {},
   sendVerificationEmail: async () => {},
+  updateLocalUserEmail: () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -412,6 +414,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateLocalUserEmail = (newEmail: string) => {
+    if (isMockMode) {
+      const stored = localStorage.getItem('verdant_mock_user');
+      if (stored) {
+        try {
+          const mockUser = JSON.parse(stored);
+          mockUser.email = newEmail;
+          mockUser.displayName = newEmail.split('@')[0];
+          localStorage.setItem('verdant_mock_user', JSON.stringify(mockUser));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    
+    setUser(prev => prev ? { ...prev, email: newEmail, displayName: newEmail.split('@')[0] } : null);
+  };
+
   const getIdToken = async () => {
     if (isMockMode) {
       const stored = localStorage.getItem('verdant_mock_user');
@@ -437,7 +457,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       registerWithEmail,
       loginWithGoogle,
       resetPassword,
-      sendVerificationEmail
+      sendVerificationEmail,
+      updateLocalUserEmail
     }}>
       {children}
     </AuthContext.Provider>

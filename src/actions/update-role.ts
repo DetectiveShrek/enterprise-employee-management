@@ -345,3 +345,123 @@ export async function requestDeleteUserAction(userId: string, requesterRole: Rol
     return { success: false, error: error instanceof Error ? error.message : 'Failed to process deletion request' };
   }
 }
+
+export async function updateUserCredentialsAction(
+  userId: string,
+  newEmail?: string,
+  newPassword?: string,
+  requesterUserId?: string,
+  requesterRole?: Role
+) {
+  try {
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    // 1. Find target user first (supports querying by database id, firebaseUid, or email)
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: userId },
+          { firebaseUid: userId },
+          { email: userId }
+        ]
+      },
+      include: { employeeProfile: true }
+    });
+
+    if (!user) {
+      return { success: false, error: 'User not found.' };
+    }
+
+    // 2. Authorization check
+    const isSelf = requesterUserId === user.id || requesterUserId === user.firebaseUid || requesterUserId === user.email;
+    const isAdmin = requesterRole === Role.SUPER_ADMIN || requesterRole === Role.ORG_ADMIN;
+
+    if (!isSelf && !isAdmin) {
+      return { success: false, error: 'Unauthorized to update these credentials.' };
+    }
+
+    // Prevent non-superadmins from modifying superadmin credentials
+    if (user.role === Role.SUPER_ADMIN && requesterRole === Role.ORG_ADMIN && !isSelf) {
+      return { success: false, error: 'Organization admins cannot modify Super Admin credentials.' };
+    }
+
+    // 3. Validate new email uniqueness if changing email
+    let cleanEmail = newEmail ? newEmail.trim().toLowerCase() : undefined;
+    if (cleanEmail && cleanEmail !== user.email) {
+      const emailExists = await prisma.user.findUnique({
+        where: { email: cleanEmail }
+      });
+      if (emailExists) {
+        return { success: false, error: 'A user with this email already exists.' };
+      }
+    } else {
+      cleanEmail = undefined; // No email change needed
+    }
+
+    // 4. Update in Firebase if applicable
+    let firebaseUpdated = false;
+    if (cleanEmail || newPassword) {
+      if ('updateUser' in adminAuth && typeof (adminAuth as Auth).updateUser === 'function') {
+        try {
+          const updateParams: { email?: string; password?: string } = {};
+          if (cleanEmail) updateParams.email = cleanEmail;
+          if (newPassword) updateParams.password = newPassword;
+
+          await (adminAuth as Auth).updateUser(user.firebaseUid, updateParams);
+          firebaseUpdated = true;
+        } catch (fbError) {
+          console.error('Error updating user in Firebase:', fbError);
+          return { success: false, error: fbError instanceof Error ? fbError.message : 'Failed to update credentials in Firebase.' };
+        }
+      }
+    }
+
+    // 5. Update in database
+    const dataToUpdate: { email?: string } = {};
+    if (cleanEmail) {
+      dataToUpdate.email = cleanEmail;
+    }
+
+    if (cleanEmail) {
+      // Update User email
+      await prisma.user.update({
+        where: { id: user.id },
+        data: dataToUpdate
+      });
+
+      // Update Employee profile email if exists
+      if (user.employeeProfile) {
+        await prisma.employee.update({
+          where: { userId: user.id },
+          data: { email: cleanEmail }
+        });
+      }
+    }
+
+    // 6. Write audit log
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: requesterUserId || null,
+          action: 'UPDATE_CREDENTIALS',
+          details: `Updated credentials for user ${user.email}${cleanEmail ? ` (new email: ${cleanEmail})` : ''}. Method: ${firebaseUpdated ? 'Firebase + DB' : 'Mock/DB'}`
+        }
+      });
+    } catch (auditError) {
+      console.warn('Failed to write audit log:', auditError);
+    }
+
+    return {
+      success: true,
+      message: cleanEmail 
+        ? 'Successfully updated email and account details.' 
+        : 'Successfully updated password.'
+    };
+  } catch (error) {
+    console.error('Error in updateUserCredentialsAction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown database error' };
+  }
+}
+
