@@ -45,7 +45,11 @@ import {
   getEmployeeDepartmentAction,
   getNotificationsAction,
   createDepartmentAction,
-  createDesignationAction
+  createDesignationAction,
+  getTodosAction,
+  createTodoAction,
+  toggleTodoAction,
+  deleteTodoAction
 } from '@/actions/features';
 
 export default function Dashboard() {
@@ -162,12 +166,7 @@ export default function Dashboard() {
   }
 
   // simulated tasks checklist
-  const [tasks, setTasks] = useState([
-    { id: 'tsk-1', text: 'Approve Rahul\'s casual leave request', done: false, priority: 'high' },
-    { id: 'tsk-2', text: 'Assign MacBook Pro to Priya Singh', done: true, priority: 'medium' },
-    { id: 'tsk-3', text: 'Review payroll budget for Q3 operations', done: false, priority: 'high' },
-    { id: 'tsk-4', text: 'Update VerdantHR onboarding checklist docs', done: false, priority: 'low' }
-  ]);
+  const [tasks, setTasks] = useState<any[]>([]);
 
   // Simulated notifications
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -182,8 +181,19 @@ export default function Dashboard() {
   const [readNotifications, setReadNotifications] = useState<string[]>([]);
   const unreadCount = notifications.filter(n => !readNotifications.includes(n.id)).length;
 
-  const handleToggleTask = (id: string) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  const handleToggleTask = async (id: string, currentDone: boolean) => {
+    // Optimistic UI update
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !currentDone } : t));
+    try {
+      const res = await toggleTodoAction(id, !currentDone);
+      if (!res.success) {
+        // Rollback on failure
+        setTasks(prev => prev.map(t => t.id === id ? { ...t, done: currentDone } : t));
+      }
+    } catch {
+      // Rollback on failure
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, done: currentDone } : t));
+    }
   };
 
   // Database-backed States
@@ -213,6 +223,9 @@ export default function Dashboard() {
   const [rbacStatus, setRbacStatus] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [userDept, setUserDept] = useState<{ name: string | null; code: string | null } | null>(null);
   const [controlSubTab, setControlSubTab] = useState<'Overview' | 'RBAC' | 'Org Setup'>('Overview');
+  const [newTodoText, setNewTodoText] = useState('');
+  const [newTodoPriority, setNewTodoPriority] = useState('medium');
+  const [isAddingTodo, setIsAddingTodo] = useState(false);
   const [newDeptForm, setNewDeptForm] = useState({ name: '', code: '' });
   const [newDesigForm, setNewDesigForm] = useState({ title: '', code: '' });
   const [isCreatingDept, setIsCreatingDept] = useState(false);
@@ -289,6 +302,10 @@ export default function Dashboard() {
         const res = await getOverviewStatsAction();
         if (res.success && res.stats) {
           setLiveStats(res.stats);
+        }
+        const todoRes = await getTodosAction(user?.email || undefined);
+        if (todoRes.success && todoRes.todos) {
+          setTasks(todoRes.todos);
         }
       } else if (activeTab === 'Employees') {
         const res = await getEmployeesListAction();
@@ -641,6 +658,38 @@ export default function Dashboard() {
       }
     } catch (err) {
       setRbacStatus({ type: 'error', text: 'An error occurred while creating employee.' });
+    }
+  };
+
+  const handleAddTodo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTodoText.trim()) return;
+    setIsAddingTodo(true);
+    try {
+      const res = await createTodoAction(newTodoText.trim(), newTodoPriority, user?.email || undefined);
+      if (res.success && res.todo) {
+        setTasks(prev => [res.todo, ...prev]);
+        setNewTodoText('');
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to create task.' });
+      }
+    } catch {
+      setRbacStatus({ type: 'error', text: 'Error creating task.' });
+    } finally {
+      setIsAddingTodo(false);
+    }
+  };
+
+  const handleDeleteTodo = async (id: string) => {
+    // Optimistic UI update
+    setTasks(prev => prev.filter(t => t.id !== id));
+    try {
+      const res = await deleteTodoAction(id);
+      if (!res.success) {
+        fetchTabData();
+      }
+    } catch {
+      fetchTabData();
     }
   };
 
@@ -1099,26 +1148,60 @@ export default function Dashboard() {
                 <span>Your Action Items</span>
               </h3>
               
-              <div className="space-y-3">
-                {tasks.map(t => (
-                  <div 
-                    key={t.id} 
-                    onClick={() => handleToggleTask(t.id)}
-                    className="flex items-start gap-3 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs"
-                  >
-                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${
-                      t.done 
-                        ? 'bg-[#2D6A4F] border-[#2D6A4F] text-white' 
-                        : 'border-slate-350 bg-white'
-                    }`}>
-                      {t.done && <Check className="w-3.5 h-3.5" />}
+              <div className="space-y-2">
+                {tasks.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 text-center py-2 font-medium">No action items. Add one below!</p>
+                ) : (
+                  tasks.map(t => (
+                    <div 
+                      key={t.id} 
+                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-50/70 transition-all text-xs group"
+                    >
+                      <div 
+                        onClick={() => handleToggleTask(t.id, t.done)}
+                        className="flex items-start gap-3 cursor-pointer flex-1"
+                      >
+                        <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all ${
+                          t.done 
+                            ? 'bg-[#2D6A4F] border-[#2D6A4F] text-white' 
+                            : 'border-slate-300 bg-white'
+                        }`}>
+                          {t.done && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                        <span className={`text-[11px] leading-tight transition-all ${
+                          t.done ? 'line-through text-slate-400' : 'text-slate-700 font-medium'
+                        }`}>{t.text}</span>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTodo(t.id);
+                        }}
+                        className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
-                    <span className={`text-[11px] leading-tight transition-all ${
-                      t.done ? 'line-through text-slate-400' : 'text-slate-700 font-medium'
-                    }`}>{t.text}</span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
+
+              <form onSubmit={handleAddTodo} className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Add new task..." 
+                  value={newTodoText}
+                  onChange={(e) => setNewTodoText(e.target.value)}
+                  className="flex-1 px-2.5 py-1.5 border border-slate-200 rounded-lg text-[10px] focus:outline-none focus:border-[#2D6A4F]"
+                />
+                <button 
+                  type="submit"
+                  disabled={isAddingTodo || !newTodoText.trim()}
+                  className="p-1.5 bg-[#2D6A4F] hover:bg-[#204f3b] disabled:bg-slate-200 text-white rounded-lg transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </form>
             </div>
 
             {/* System Connection Diagnostics */}

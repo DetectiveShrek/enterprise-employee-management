@@ -270,6 +270,27 @@ export async function seedSampleDataAction() {
       }
     }
 
+    // 10. Create initial Todos/Action Items
+    const initialTodos = [
+      { text: 'Approve Rahul\'s casual leave request', done: false, priority: 'high' },
+      { text: 'Assign MacBook Pro to Priya Singh', done: true, priority: 'medium' },
+      { text: 'Review payroll budget for Q3 operations', done: false, priority: 'high' },
+      { text: 'Update VerdantHR onboarding checklist docs', done: false, priority: 'low' }
+    ];
+
+    for (const t of initialTodos) {
+      const exists = await prisma.todo.findFirst({ where: { text: t.text } });
+      if (!exists) {
+        await prisma.todo.create({
+          data: {
+            text: t.text,
+            done: t.done,
+            priority: t.priority
+          }
+        });
+      }
+    }
+
     console.log("Seeding completed successfully.");
     return { success: true };
   } catch (error) {
@@ -1280,3 +1301,61 @@ export async function createDesignationAction(title: string, code: string) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to create designation" };
   }
 }
+
+// -------------------------------------------------------------
+// TODO / ACTION ITEMS ACTIONS
+// -------------------------------------------------------------
+export async function getTodosAction(email?: string) {
+  try {
+    const todos = await prisma.todo.findMany({
+      where: email ? { email } : {},
+      orderBy: { createdAt: 'desc' }
+    });
+    return { success: true, todos: JSON.parse(JSON.stringify(todos)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch todos" };
+  }
+}
+
+export async function createTodoAction(text: string, priority: string, email?: string) {
+  try {
+    if (!text) {
+      return { success: false, error: "Task text is required." };
+    }
+    const todo = await prisma.todo.create({
+      data: {
+        text,
+        priority: priority.toLowerCase(),
+        email,
+        done: false
+      }
+    });
+    return { success: true, todo: JSON.parse(JSON.stringify(todo)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to create todo" };
+  }
+}
+
+export async function toggleTodoAction(id: string, done: boolean) {
+  try {
+    const todo = await prisma.todo.update({
+      where: { id },
+      data: { done }
+    });
+    return { success: true, todo: JSON.parse(JSON.stringify(todo)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to toggle todo" };
+  }
+}
+
+export async function deleteTodoAction(id: string) {
+  try {
+    await prisma.todo.delete({
+      where: { id }
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to delete todo" };
+  }
+}
+
