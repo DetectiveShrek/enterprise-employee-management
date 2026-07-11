@@ -49,7 +49,11 @@ import {
   getTodosAction,
   createTodoAction,
   toggleTodoAction,
-  deleteTodoAction
+  deleteTodoAction,
+  requestDeptChangeAction,
+  getDeptChangeRequestsAction,
+  approveDeptChangeRequestAction,
+  rejectDeptChangeRequestAction
 } from '@/actions/features';
 
 export default function Dashboard() {
@@ -226,6 +230,11 @@ export default function Dashboard() {
   const [newTodoText, setNewTodoText] = useState('');
   const [newTodoPriority, setNewTodoPriority] = useState('medium');
   const [isAddingTodo, setIsAddingTodo] = useState(false);
+  const [deptChangeRequests, setDeptChangeRequests] = useState<any[]>([]);
+  const [isDeptChangeModalOpen, setIsDeptChangeModalOpen] = useState(false);
+  const [selectedEmpForDeptChange, setSelectedEmpForDeptChange] = useState<any>(null);
+  const [selectedNewDeptId, setSelectedNewDeptId] = useState('');
+  const [deptChangeSubmitting, setDeptChangeSubmitting] = useState(false);
   const [newDeptForm, setNewDeptForm] = useState({ name: '', code: '' });
   const [newDesigForm, setNewDesigForm] = useState({ title: '', code: '' });
   const [isCreatingDept, setIsCreatingDept] = useState(false);
@@ -354,6 +363,12 @@ export default function Dashboard() {
         if (deptRes.success) {
           setDepartments(deptRes.departments || []);
           setDesignations(deptRes.designations || []);
+        }
+        if (selectedRole === 'SUPER_ADMIN') {
+          const reqRes = await getDeptChangeRequestsAction();
+          if (reqRes.success && reqRes.requests) {
+            setDeptChangeRequests(reqRes.requests);
+          }
         }
         const empRes = await getEmployeesListAction();
         if (empRes.success && empRes.employees) {
@@ -690,6 +705,68 @@ export default function Dashboard() {
       }
     } catch {
       fetchTabData();
+    }
+  };
+
+  const handleSubmitDeptChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmpForDeptChange || !selectedNewDeptId) return;
+    setDeptChangeSubmitting(true);
+    setRbacStatus(null);
+    try {
+      const res = await requestDeptChangeAction(
+        selectedEmpForDeptChange.id,
+        selectedNewDeptId,
+        user?.email || '',
+        selectedRole as Role
+      );
+      if (res.success) {
+        if (res.immediate) {
+          setRbacStatus({ type: 'success', text: 'Department successfully updated.' });
+        } else {
+          setRbacStatus({ type: 'success', text: 'Department change request submitted for Superadmin approval.' });
+        }
+        setIsDeptChangeModalOpen(false);
+        setSelectedEmpForDeptChange(null);
+        setSelectedNewDeptId('');
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to change department.' });
+      }
+    } catch (err) {
+      setRbacStatus({ type: 'error', text: 'An error occurred.' });
+    } finally {
+      setDeptChangeSubmitting(false);
+    }
+  };
+
+  const handleApproveDeptChange = async (requestId: string) => {
+    setRbacStatus(null);
+    try {
+      const res = await approveDeptChangeRequestAction(requestId, user?.email || '');
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: 'Department change request approved successfully.' });
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to approve request.' });
+      }
+    } catch {
+      setRbacStatus({ type: 'error', text: 'An error occurred.' });
+    }
+  };
+
+  const handleRejectDeptChange = async (requestId: string) => {
+    setRbacStatus(null);
+    try {
+      const res = await rejectDeptChangeRequestAction(requestId, user?.email || '');
+      if (res.success) {
+        setRbacStatus({ type: 'success', text: 'Department change request rejected.' });
+        fetchTabData();
+      } else {
+        setRbacStatus({ type: 'error', text: res.error || 'Failed to reject request.' });
+      }
+    } catch {
+      setRbacStatus({ type: 'error', text: 'An error occurred.' });
     }
   };
 
@@ -1275,12 +1352,15 @@ export default function Dashboard() {
                   <th className="py-3 px-5">Department & Designation</th>
                   <th className="py-3 px-5">Employment Type</th>
                   <th className="py-3 px-5">Status</th>
+                  {(selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') && (
+                    <th className="py-3 px-5">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-650 bg-white">
                 {realEmployees.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400 text-xs font-semibold">
+                    <td colSpan={(selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') ? 6 : 5} className="py-8 text-center text-slate-400 text-xs font-semibold">
                       No employees found. Seed sample data or add a new employee profile.
                     </td>
                   </tr>
@@ -1315,6 +1395,20 @@ export default function Dashboard() {
                             {e.status}
                           </span>
                         </td>
+                        {(selectedRole === 'SUPER_ADMIN' || selectedRole === 'ORG_ADMIN') && (
+                          <td className="py-3.5 px-5">
+                            <button
+                              onClick={() => {
+                                setSelectedEmpForDeptChange(e);
+                                setSelectedNewDeptId(e.departmentId || '');
+                                setIsDeptChangeModalOpen(true);
+                              }}
+                              className="px-2 py-1 bg-[#004225]/5 hover:bg-[#004225]/10 text-[#004225] font-black text-[9px] uppercase rounded-md transition-all"
+                            >
+                              Change Dept
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))
                 )}
@@ -1444,6 +1538,63 @@ export default function Dashboard() {
                   className="w-full mt-4 py-2.5 bg-[#2D6A4F] hover:bg-[#204f3b] text-white font-bold rounded-xl transition-all shadow-xs"
                 >
                   Create Employee Profile
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Change Department Modal */}
+        {isDeptChangeModalOpen && selectedEmpForDeptChange && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-[400px] p-6 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-slate-800 text-sm">Change Employee Department</h3>
+                <button onClick={() => {
+                  setIsDeptChangeModalOpen(false);
+                  setSelectedEmpForDeptChange(null);
+                  setSelectedNewDeptId('');
+                }} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitDeptChange} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">Employee Name</label>
+                  <p className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-slate-800 font-bold">
+                    {selectedEmpForDeptChange.firstName} {selectedEmpForDeptChange.lastName}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">Current Department</label>
+                  <p className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-slate-600">
+                    {selectedEmpForDeptChange.department?.name || 'Not Assigned'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-455 uppercase mb-1">Select New Department</label>
+                  <select
+                    value={selectedNewDeptId}
+                    onChange={(e) => setSelectedNewDeptId(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 focus:outline-none focus:bg-white text-slate-600 font-medium"
+                  >
+                    <option value="">Select Department</option>
+                    {departments.map((d: any) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={deptChangeSubmitting}
+                  className="w-full mt-4 py-2.5 bg-[#2D6A4F] hover:bg-[#204f3b] disabled:bg-slate-200 text-white font-bold rounded-xl transition-all shadow-xs"
+                >
+                  {deptChangeSubmitting ? 'Submitting...' : selectedRole === 'SUPER_ADMIN' ? 'Change Department' : 'Request Department Change'}
                 </button>
               </form>
             </div>
@@ -2857,6 +3008,51 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Side: Stats and Chart */}
             <div className="lg:col-span-8 space-y-6">
+              {/* Pending Department Change Approvals */}
+              {selectedRole === 'SUPER_ADMIN' && deptChangeRequests.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                  <h3 className="font-bold text-slate-800 text-sm tracking-tight mb-4 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#2D6A4F]" />
+                    <span>Pending Department Change Approvals</span>
+                  </h3>
+                  
+                  <div className="space-y-3">
+                    {deptChangeRequests.map((req: any) => (
+                      <div key={req.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4 text-xs">
+                        <div className="space-y-1">
+                          <span className="block font-bold text-slate-800">
+                            {req.employee.firstName} {req.employee.lastName}
+                          </span>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold">
+                            <span>From: <strong className="text-slate-650">{req.employee.department?.name || 'No Dept'}</strong></span>
+                            <span>→</span>
+                            <span>To: <strong className="text-[#2D6A4F]">{req.requestedDept.name}</strong></span>
+                          </div>
+                          <span className="block text-[9px] text-slate-400 font-medium">
+                            Requested by: {req.requesterEmail} on {new Date(req.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApproveDeptChange(req.id)}
+                            className="px-3 py-1.5 bg-[#2D6A4F] hover:bg-[#204f3b] text-white text-[10px] font-black uppercase rounded-lg transition-all shadow-2xs"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleRejectDeptChange(req.id)}
+                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-650 text-[10px] font-black uppercase rounded-lg transition-all border border-red-200 shadow-2xs"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Analytics Counters */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs hover:border-[#2D6A4F]/30 transition-all flex flex-col justify-between">

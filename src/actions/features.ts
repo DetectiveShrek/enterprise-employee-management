@@ -1219,6 +1219,47 @@ export async function getNotificationsAction(email: string, role: Role) {
       }
     });
 
+    // 5. Dept Change Requests
+    let deptReqs;
+    if (role === Role.SUPER_ADMIN) {
+      deptReqs = await prisma.deptChangeRequest.findMany({
+        include: { employee: true, requestedDept: true },
+        orderBy: { createdAt: 'desc' },
+        take: 10
+      });
+    } else {
+      deptReqs = await prisma.deptChangeRequest.findMany({
+        where: { requesterEmail: email.toLowerCase() },
+        include: { employee: true, requestedDept: true },
+        orderBy: { createdAt: 'desc' },
+        take: 10
+      });
+    }
+
+    deptReqs.forEach(req => {
+      const time = req.createdAt;
+      const id = `dept-change-${req.id}`;
+      if (role === Role.SUPER_ADMIN) {
+        const text = `Admin ${req.requesterEmail} requested to change ${req.employee.firstName}'s department to ${req.requestedDept.name}. Status: ${req.status}`;
+        notifications.push({
+          id,
+          title: 'Department Change Request',
+          text,
+          time,
+          createdAt: req.createdAt
+        });
+      } else {
+        const text = `Your request to change ${req.employee.firstName}'s department to ${req.requestedDept.name} is ${req.status.toLowerCase()}.`;
+        notifications.push({
+          id,
+          title: 'Department Change Status',
+          text,
+          time,
+          createdAt: req.createdAt
+        });
+      }
+    });
+
     // Sort all notifications by createdAt desc
     notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -1358,4 +1399,151 @@ export async function deleteTodoAction(id: string) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to delete todo" };
   }
 }
+
+// -------------------------------------------------------------
+// DEPARTMENT CHANGE REQUEST ACTIONS
+// -------------------------------------------------------------
+export async function requestDeptChangeAction(
+  employeeId: string,
+  departmentId: string,
+  requesterEmail: string,
+  requesterRole: Role
+) {
+  try {
+    if (!employeeId || !departmentId) {
+      return { success: false, error: "Employee and Department are required." };
+    }
+
+    if (requesterRole === Role.SUPER_ADMIN) {
+      // Superadmin changes immediately
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { departmentId }
+      });
+      
+      // Log audit
+      await prisma.auditLog.create({
+        data: {
+          action: 'CHANGE_DEPT_IMMEDIATE',
+          details: `Superadmin ${requesterEmail} changed department of employee ${employeeId} directly.`
+        }
+      });
+      return { success: true, immediate: true };
+    } else {
+      // Admin request requires approval
+      const request = await prisma.deptChangeRequest.create({
+        data: {
+          employeeId,
+          requestedDeptId: departmentId,
+          requesterEmail: requesterEmail.toLowerCase(),
+          status: 'PENDING'
+        }
+      });
+
+      // Log audit
+      await prisma.auditLog.create({
+        data: {
+          action: 'REQUEST_DEPT_CHANGE',
+          details: `Admin ${requesterEmail} requested department change of employee ${employeeId} to ${departmentId}.`
+        }
+      });
+      return { success: true, immediate: false, requestId: request.id };
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to request department change" };
+  }
+}
+
+export async function getDeptChangeRequestsAction() {
+  try {
+    const requests = await prisma.deptChangeRequest.findMany({
+      where: { status: 'PENDING' },
+      include: {
+        employee: {
+          include: { department: true }
+        },
+        requestedDept: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    return { success: true, requests: JSON.parse(JSON.stringify(requests)) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch department change requests" };
+  }
+}
+
+export async function approveDeptChangeRequestAction(requestId: string, approverEmail: string) {
+  try {
+    const request = await prisma.deptChangeRequest.findUnique({
+      where: { id: requestId }
+    });
+
+    if (!request) {
+      return { success: false, error: "Request not found." };
+    }
+
+    if (request.status !== 'PENDING') {
+      return { success: false, error: `Request has already been ${request.status.toLowerCase()}.` };
+    }
+
+    // Apply the department change
+    await prisma.employee.update({
+      where: { id: request.employeeId },
+      data: { departmentId: request.requestedDeptId }
+    });
+
+    // Update status to APPROVED
+    await prisma.deptChangeRequest.update({
+      where: { id: requestId },
+      data: { status: 'APPROVED' }
+    });
+
+    // Log audit
+    await prisma.auditLog.create({
+      data: {
+        action: 'APPROVE_DEPT_CHANGE',
+        details: `Superadmin ${approverEmail} approved department change request for employee ${request.employeeId}.`
+      }
+    });
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to approve request" };
+  }
+}
+
+export async function rejectDeptChangeRequestAction(requestId: string, approverEmail: string) {
+  try {
+    const request = await prisma.deptChangeRequest.findUnique({
+      where: { id: requestId }
+    });
+
+    if (!request) {
+      return { success: false, error: "Request not found." };
+    }
+
+    if (request.status !== 'PENDING') {
+      return { success: false, error: `Request has already been ${request.status.toLowerCase()}.` };
+    }
+
+    // Update status to REJECTED
+    await prisma.deptChangeRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED' }
+    });
+
+    // Log audit
+    await prisma.auditLog.create({
+      data: {
+        action: 'REJECT_DEPT_CHANGE',
+        details: `Superadmin ${approverEmail} rejected department change request for employee ${request.employeeId}.`
+      }
+    });
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Failed to reject request" };
+  }
+}
+
 
