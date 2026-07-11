@@ -338,6 +338,7 @@ export async function getEmployeesListAction() {
   try {
     const employees = await prisma.employee.findMany({
       include: {
+        user: true,
         department: true,
         designation: true
       },
