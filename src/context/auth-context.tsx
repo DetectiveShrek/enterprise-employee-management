@@ -16,7 +16,7 @@ import {
   sendEmailVerification
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { syncUserAction } from '@/actions/sync-user';
+import { syncUserAction, checkUserExistsByEmail } from '@/actions/sync-user';
 import { usePathname, useRouter } from 'next/navigation';
 
 interface AuthUser {
@@ -142,13 +142,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser && !fbUser.emailVerified && !isMockMode) {
-        setFirebaseUser(null);
-        setUser(null);
-        setRole(null);
-        setLoading(false);
-        await fbSignOut(auth);
-        return;
+      if (fbUser && !fbUser.emailVerified && !isMockMode && fbUser.email) {
+        const check = await checkUserExistsByEmail(fbUser.email);
+        if (!check.exists) {
+          setFirebaseUser(null);
+          setUser(null);
+          setRole(null);
+          setLoading(false);
+          await fbSignOut(auth);
+          return;
+        }
       }
 
       setFirebaseUser(fbUser);
@@ -281,8 +284,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (userCredential.user && !userCredential.user.emailVerified) {
-        await fbSignOut(auth);
-        throw new Error("Please verify your email address before logging in.");
+        const check = await checkUserExistsByEmail(email);
+        if (!check.exists) {
+          await fbSignOut(auth);
+          throw new Error("Please verify your email address before logging in.");
+        }
       }
     } finally {
       setLoading(false);

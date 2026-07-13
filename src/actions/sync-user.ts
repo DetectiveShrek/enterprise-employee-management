@@ -86,3 +86,16 @@ export async function syncUserAction(idToken: string) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
+
+export async function checkUserExistsByEmail(email: string) {
+  try {
+    if (!email) return { exists: false };
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+    return { exists: !!user };
+  } catch (error) {
+    console.error('Error in checkUserExistsByEmail:', error);
+    return { exists: false };
+  }
+}
