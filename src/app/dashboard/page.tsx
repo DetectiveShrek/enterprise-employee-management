@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { Logo } from '@/components/logo';
 import { formatName } from '@/lib/name-utils';
@@ -182,6 +182,13 @@ export default function Dashboard() {
   ]);
   const [chatInput, setChatInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isAiTyping, aiAssistantOpen]);
 
   const [readNotifications, setReadNotifications] = useState<string[]>([]);
   const unreadCount = notifications.filter(n => !readNotifications.includes(n.id)).length;
@@ -3934,6 +3941,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+                <div ref={chatMessagesEndRef} />
               </div>
 
               {/* Suggestion Prompts */}
