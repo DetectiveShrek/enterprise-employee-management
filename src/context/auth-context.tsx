@@ -142,6 +142,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser && !fbUser.emailVerified && !isMockMode) {
+        setFirebaseUser(null);
+        setUser(null);
+        setRole(null);
+        setLoading(false);
+        await fbSignOut(auth);
+        return;
+      }
+
       setFirebaseUser(fbUser);
       if (fbUser) {
         try {
@@ -258,8 +267,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         auth, 
         rememberMe ? browserLocalPersistence : browserSessionPersistence
       );
+      let userCredential;
       try {
-        await signInWithEmailAndPassword(auth, email, password);
+        userCredential = await signInWithEmailAndPassword(auth, email, password);
       } catch (fbErr: any) {
         let cleanMsg = "Invalid email or password.";
         if (fbErr?.code === 'auth/invalid-credential') {
@@ -268,6 +278,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           cleanMsg = fbErr.message;
         }
         throw new Error(cleanMsg);
+      }
+
+      if (userCredential.user && !userCredential.user.emailVerified) {
+        await fbSignOut(auth);
+        throw new Error("Please verify your email address before logging in.");
       }
     } finally {
       setLoading(false);
@@ -324,6 +339,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       if (userCredential.user) {
         await sendEmailVerification(userCredential.user);
+        await fbSignOut(auth);
       }
     } finally {
       setLoading(false);
