@@ -10,6 +10,7 @@ import {
   TicketStatus, 
   TicketPriority 
 } from '@prisma/client';
+import { splitEmailName } from '@/lib/name-utils';
 
 // -------------------------------------------------------------
 // SEED SAMPLE DATA ACTION
@@ -408,9 +409,7 @@ async function getOrCreateEmployeeProfile(email: string) {
 
     const count = await prisma.employee.count();
     const employeeId = `EMP${String(count + 1).padStart(3, '0')}`;
-    const emailParts = lowerEmail.split('@');
-    const namePart = emailParts[0];
-    const firstName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+    const { firstName, lastName } = splitEmailName(lowerEmail);
 
     employee = await prisma.employee.create({
       data: {
@@ -418,7 +417,7 @@ async function getOrCreateEmployeeProfile(email: string) {
         userId: user.id,
         email: lowerEmail,
         firstName,
-        lastName: 'Employee',
+        lastName,
         joiningDate: new Date(),
         employmentType: 'Full-time',
         status: 'Active',

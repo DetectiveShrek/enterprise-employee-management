@@ -2,6 +2,7 @@
 
 import prisma from '@/lib/prisma';
 import { Role } from '@prisma/client';
+import { splitEmailName } from '@/lib/name-utils';
 
 export async function updateUserRoleAction(userId: string, newRole: Role) {
   try {
@@ -119,9 +120,7 @@ export async function syncFirebaseUsersAction() {
       if (!employee) {
         const count = await prisma.employee.count();
         const employeeId = `EMP${String(count + 1).padStart(3, '0')}`;
-        const emailParts = userRecord.email.split('@');
-        const namePart = emailParts[0] || 'Employee';
-        const firstName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+        const { firstName, lastName } = splitEmailName(userRecord.email);
         
         await prisma.employee.create({
           data: {
@@ -129,7 +128,7 @@ export async function syncFirebaseUsersAction() {
             userId: updatedOrCreated.id,
             email: userRecord.email.toLowerCase(),
             firstName,
-            lastName: 'Employee',
+            lastName,
             joiningDate: new Date(),
             employmentType: 'Full-time',
             status: 'Active',
@@ -194,9 +193,7 @@ export async function createUserAction(email: string, role: Role, password?: str
     const count = await prisma.employee.count();
     const employeeId = `EMP${String(count + 1).padStart(3, '0')}`;
     
-    const emailParts = email.split('@');
-    const namePart = emailParts[0];
-    const firstName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+    const { firstName, lastName } = splitEmailName(email);
     
     await prisma.employee.create({
       data: {
@@ -204,7 +201,7 @@ export async function createUserAction(email: string, role: Role, password?: str
         userId: newUser.id,
         email: email.toLowerCase(),
         firstName,
-        lastName: 'Employee',
+        lastName,
         joiningDate: new Date(),
         employmentType: 'Full-time',
         status: creatorRole === Role.ORG_ADMIN ? 'Pending Approval' : 'Active',

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { Logo } from '@/components/logo';
+import { formatName } from '@/lib/name-utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { updateUserRoleAction, getUsersAction, syncFirebaseUsersAction, createUserAction, deleteUserAction, approveUserAction, requestDeleteUserAction, updateUserCredentialsAction } from '@/actions/update-role';
 import { Role, LeaveType, LeaveStatus, AttendanceStatus, AssetStatus, TicketStatus, TicketPriority } from '@prisma/client';
@@ -1122,7 +1123,7 @@ export default function Dashboard() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-              Good day, {user?.email?.split('@')[0] || 'VerdantHR Admin'} <Sparkles className="w-4 h-4 text-amber-500" />
+              Good day, {user?.email ? formatName(user.email) : 'VerdantHR Admin'} <Sparkles className="w-4 h-4 text-amber-500" />
             </h2>
             <p className="text-xs text-slate-500">Here is what is happening across your enterprise workforce today.</p>
           </div>
@@ -3609,7 +3610,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             {!sidebarCollapsed && (
               <div className="flex flex-col min-w-0">
-                <span className="text-xs font-bold text-white truncate">{user?.email?.split('@')[0] || 'Administrator'}</span>
+                <span className="text-xs font-bold text-white truncate">{user?.email ? formatName(user.email) : 'Administrator'}</span>
                 <span className="text-[9px] text-[#2D6A4F] bg-white/90 px-1.5 py-0.5 rounded font-black uppercase tracking-wider w-fit mt-0.5">{selectedRole}</span>
               </div>
             )}
@@ -3678,7 +3679,7 @@ export default function Dashboard() {
               <div className="p-5 border-t border-[#005c33] bg-[#002d1a]">
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold text-white">{user?.email?.split('@')[0]}</span>
+                    <span className="text-xs font-bold text-white">{user?.email ? formatName(user.email) : 'Administrator'}</span>
                     <span className="text-[9px] text-[#2D6A4F] bg-white px-1.5 py-0.5 rounded font-black uppercase tracking-wider mt-0.5">{selectedRole}</span>
                   </div>
                   <button onClick={signOut} suppressHydrationWarning className="p-2 rounded bg-white/10 hover:bg-red-500/20 text-slate-300">

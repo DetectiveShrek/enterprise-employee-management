@@ -3,6 +3,7 @@
 import { getAdminAuth } from '@/lib/firebase-admin';
 import prisma from '@/lib/prisma';
 import { Role } from '@prisma/client';
+import { splitEmailName } from '@/lib/name-utils';
 
 export async function syncUserAction(idToken: string) {
   try {
@@ -63,9 +64,7 @@ export async function syncUserAction(idToken: string) {
       const count = await prisma.employee.count();
       const employeeId = `EMP${String(count + 1).padStart(3, '0')}`;
 
-      const emailParts = email.split('@');
-      const namePart = emailParts[0];
-      const firstName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      const { firstName, lastName } = splitEmailName(email);
 
       await prisma.employee.create({
         data: {
@@ -73,7 +72,7 @@ export async function syncUserAction(idToken: string) {
           userId: user.id,
           email,
           firstName,
-          lastName: 'Employee',
+          lastName,
           joiningDate: new Date(),
           employmentType: 'Full-time',
           status: 'Active',
